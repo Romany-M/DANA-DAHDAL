@@ -5,7 +5,11 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useState, useEffect, useRef } from "react";
 import { useSite } from "./context/SiteContext";
 import { translations } from "./lib/translations";
-import { galleryData, variousWorks, muralsData, ArtItem } from "./lib/data";
+import { supabase } from "./lib/supabase";
+import type { DbImage } from "./lib/supabase";
+
+/* ArtItem من Supabase */
+type ArtItem = DbImage;
 
 const socials = [
   {
@@ -129,16 +133,19 @@ function Lightbox({ items, index, onClose, onChange }: {
           onMouseUp={() => setDrag(false)} onMouseLeave={() => setDrag(false)}
           onTouchStart={onTS} onTouchEnd={onTE}>
           <AnimatePresence custom={dir} mode="wait">
-            <motion.img key={index} src={item.src} alt={item.title}
-              custom={dir} variants={sv} initial="enter" animate="center" exit="exit"
-              transition={{ duration: 0.38, ease: [0.25, 0.46, 0.45, 0.94] }}
+            <motion.div key={index} custom={dir} variants={sv} initial="enter" animate="center" exit="exit"
+              transition={{ duration: 0.35, ease: [0.25, 0.46, 0.45, 0.94] }}
               style={{
-                maxHeight: "100%", maxWidth: "100%", objectFit: "contain",
                 transform: `scale(${zoom}) translate(${pan.x / zoom}px, ${pan.y / zoom}px)`,
-                transition: drag ? "none" : "transform 0.1s ease-out",
-                userSelect: "none", pointerEvents: "none",
-              }}
-              draggable={false} />
+                transition: drag ? "none" : "transform 0.15s ease-out",
+                transformOrigin: "center center",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                maxWidth: "100%", maxHeight: "100%",
+              }}>
+              <img src={item.src} alt={item.title}
+                style={{ maxWidth: "100%", maxHeight: "85vh", objectFit: "contain", userSelect: "none", pointerEvents: "none", display: "block" }}
+                draggable={false} />
+            </motion.div>
           </AnimatePresence>
           {index > 0 && (
             <button onClick={() => onChange(index - 1)}
@@ -222,8 +229,7 @@ function ArtCard({ src, title, medium, dims, year, location, delay = 0, onClick 
   location: string; delay?: number; onClick?: () => void;
 }) {
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 40 }} whileInView={{ opacity: 1, y: 0 }}
+    <motion.div initial={{ opacity: 0, y: 40 }} whileInView={{ opacity: 1, y: 0 }}
       viewport={{ once: true, margin: "-40px" }}
       transition={{ duration: 0.7, delay, ease: "easeOut" }}
       className="group cursor-pointer" onClick={onClick}>
@@ -267,52 +273,27 @@ function SectionHeader({ label, title }: { label: string; title: string }) {
   );
 }
 
-/* ══════════════════════════════════
-   PAGINATION
-   ─────────────────────────────────
-   الحل النهائي:
-   - الزر بيغيّر الـ page في state
-   - useEffect بيراقب page تحديداً
-   - عند التغيير: scrollIntoView مباشرة على الـ section
-   - isFirstMount يمنع الـ scroll عند أول تحميل
-══════════════════════════════════ */
-function usePagination(total: number) {
-  const [page, setPage]   = useState(1);
-  const anchorRef          = useRef<HTMLDivElement>(null);
-  const isFirstMount       = useRef(true);
-  const prevPage           = useRef(1);
-
+function usePagination(totalPages: number) {
+  const [page, setPage] = useState(1);
+  const anchorRef      = useRef<HTMLDivElement>(null);
+  const isFirstMount   = useRef(true);
+  const prevPage       = useRef(1);
   useEffect(() => {
-    // مش بنعمل scroll أول مرة أو لو الصفحة مش اتغيرت
-    if (isFirstMount.current) {
-      isFirstMount.current = false;
-      return;
-    }
+    if (isFirstMount.current) { isFirstMount.current = false; return; }
     if (page === prevPage.current) return;
     prevPage.current = page;
-
-    // scroll للـ anchor اللي فوق أزرار الـ pagination مباشرة
     const anchor = anchorRef.current;
     if (!anchor) return;
-
     setTimeout(() => {
-      const rect = anchor.getBoundingClientRect();
-      const scrollTop = window.scrollY + rect.top - 100; // 100px = navbar + margin
-      window.scrollTo({ top: scrollTop, behavior: "smooth" });
+      const top = anchor.getBoundingClientRect().top + window.scrollY - 100;
+      window.scrollTo({ top, behavior: "smooth" });
     }, 50);
   }, [page]);
-
-  const changePage = (p: number) => {
-    if (p === page) return;
-    setPage(p);
-  };
-
-  return { page, changePage, anchorRef, totalPages: total };
+  const changePage = (p: number) => { if (p !== page) setPage(p); };
+  return { page, changePage, anchorRef, totalPages };
 }
 
-function PaginationBar({ page, total, onChange }: {
-  page: number; total: number; onChange: (p: number) => void;
-}) {
+function PaginationBar({ page, total, onChange }: { page: number; total: number; onChange: (p: number) => void }) {
   if (total <= 1) return null;
   return (
     <div className="flex justify-center items-center gap-2 mt-10 sm:mt-16">
@@ -333,25 +314,23 @@ function PaginationBar({ page, total, onChange }: {
 const PER_PAGE = 8;
 
 /* ══════════════════════════════════
-   GALLERY SECTION
+   GALLERY SECTION — يجيب من Supabase
 ══════════════════════════════════ */
-function GallerySection() {
+function GallerySection({ allImages }: { allImages: ArtItem[] }) {
   const { langT } = useSite();
   const t = translations[langT];
   type TabKey = "icons" | "gilding" | "mosaic";
   const [active, setActive] = useState<TabKey>("icons");
   const [lbIdx,  setLbIdx]  = useState<number | null>(null);
 
-  const allItems   = galleryData[active];
-  const totalPages = Math.ceil(allItems.length / PER_PAGE);
+  const tabItems   = allImages.filter(img => img.section === active);
+  const totalPages = Math.ceil(tabItems.length / PER_PAGE);
 
-  // pagination منفصلة لكل tab
-  const iconsPag   = usePagination(Math.ceil(galleryData.icons.length   / PER_PAGE));
-  const gildingPag = usePagination(Math.ceil(galleryData.gilding.length / PER_PAGE));
-  const mosaicPag  = usePagination(Math.ceil(galleryData.mosaic.length  / PER_PAGE));
-
+  const iconsPag   = usePagination(Math.ceil(allImages.filter(i => i.section === "icons").length   / PER_PAGE));
+  const gildingPag = usePagination(Math.ceil(allImages.filter(i => i.section === "gilding").length / PER_PAGE));
+  const mosaicPag  = usePagination(Math.ceil(allImages.filter(i => i.section === "mosaic").length  / PER_PAGE));
   const pag = active === "icons" ? iconsPag : active === "gilding" ? gildingPag : mosaicPag;
-  const pageItems = allItems.slice((pag.page - 1) * PER_PAGE, pag.page * PER_PAGE);
+  const pageItems = tabItems.slice((pag.page - 1) * PER_PAGE, pag.page * PER_PAGE);
 
   const tabs: { key: TabKey; label: string }[] = [
     { key: "icons",   label: t.tabs[0] },
@@ -363,22 +342,19 @@ function GallerySection() {
     <>
       <AnimatePresence>
         {lbIdx !== null && (
-          <Lightbox items={allItems} index={lbIdx}
+          <Lightbox items={tabItems} index={lbIdx}
             onClose={() => setLbIdx(null)} onChange={i => setLbIdx(i)} />
         )}
       </AnimatePresence>
 
       <section id="gallery" className="px-4 sm:px-8 md:px-16 lg:px-28 py-16 sm:py-28 md:py-40">
-        {/* ── anchor: الـ scroll بيجيلي هنا ── */}
         <div ref={pag.anchorRef} />
-
         <SectionHeader label={`— ${t.selectedWorks} —`} title={t.gallery} />
 
         <div className="flex justify-center mb-10 sm:mb-16 overflow-x-auto pb-1">
           <div className="flex border border-neutral-200 dark:border-neutral-800 min-w-max">
             {tabs.map(tab => (
-              <button key={tab.key}
-                onClick={() => { setActive(tab.key); }}
+              <button key={tab.key} onClick={() => setActive(tab.key)}
                 className={`relative px-5 sm:px-8 md:px-10 py-3 sm:py-3.5 text-[10px] sm:text-xs md:text-sm tracking-[0.3em] uppercase transition-all duration-500 whitespace-nowrap font-semibold border-r border-neutral-200 dark:border-neutral-800 last:border-r-0 ${active === tab.key ? "bg-neutral-900 dark:bg-white text-white dark:text-black" : "text-neutral-400 hover:text-neutral-800 dark:hover:text-neutral-200"}`}>
                 {tab.label}
                 {active === tab.key && <motion.span layoutId="tab-line" className="absolute bottom-0 left-0 right-0 h-[3px] bg-[#b8955a]" />}
@@ -391,11 +367,10 @@ function GallerySection() {
           initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.45 }}
           className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-5 md:gap-8">
           {pageItems.map((item, i) => (
-            <ArtCard key={`${active}-${pag.page}-${i}`} {...item} delay={i * 0.05}
+            <ArtCard key={item.id} {...item} delay={i * 0.05}
               onClick={() => setLbIdx((pag.page - 1) * PER_PAGE + i)} />
           ))}
         </motion.div>
-
         <PaginationBar page={pag.page} total={totalPages} onChange={pag.changePage} />
       </section>
     </>
@@ -405,28 +380,25 @@ function GallerySection() {
 /* ══════════════════════════════════
    EXHIBITIONS SECTION
 ══════════════════════════════════ */
-function ExhibitionsSection() {
+function ExhibitionsSection({ items }: { items: ArtItem[] }) {
   const { langT } = useSite();
   const t = translations[langT];
   const [lbIdx, setLbIdx] = useState<number | null>(null);
-
-  const totalPages = Math.ceil(variousWorks.length / PER_PAGE);
+  const totalPages = Math.ceil(items.length / PER_PAGE);
   const pag        = usePagination(totalPages);
-  const pageItems  = variousWorks.slice((pag.page - 1) * PER_PAGE, pag.page * PER_PAGE);
+  const pageItems  = items.slice((pag.page - 1) * PER_PAGE, pag.page * PER_PAGE);
 
   return (
     <>
       <AnimatePresence>
         {lbIdx !== null && (
-          <Lightbox items={variousWorks} index={lbIdx}
+          <Lightbox items={items} index={lbIdx}
             onClose={() => setLbIdx(null)} onChange={i => setLbIdx(i)} />
         )}
       </AnimatePresence>
 
       <section id="various" className="px-4 sm:px-8 md:px-16 lg:px-28 py-16 sm:py-28 md:py-40 bg-neutral-100 dark:bg-neutral-950">
-        {/* ── anchor ── */}
         <div ref={pag.anchorRef} />
-
         <div className="w-full h-[1px] bg-gradient-to-r from-transparent via-[#b8955a]/40 to-transparent mb-10 sm:mb-16" />
         <SectionHeader label="" title={t.various} />
 
@@ -434,11 +406,10 @@ function ExhibitionsSection() {
           initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.45 }}
           className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-5 md:gap-8">
           {pageItems.map((item, i) => (
-            <ArtCard key={`various-${pag.page}-${i}`} {...item} delay={i * 0.05}
+            <ArtCard key={item.id} {...item} delay={i * 0.05}
               onClick={() => setLbIdx((pag.page - 1) * PER_PAGE + i)} />
           ))}
         </motion.div>
-
         <PaginationBar page={pag.page} total={totalPages} onChange={pag.changePage} />
       </section>
     </>
@@ -446,20 +417,38 @@ function ExhibitionsSection() {
 }
 
 /* ══════════════════════════════════
-   HOME
+   HOME — يجيب كل البيانات من Supabase
 ══════════════════════════════════ */
 export default function Home() {
   const { langT } = useSite();
   const t = translations[langT];
   const isAr = langT === "ar";
+
   const [showPreloader, setShowPreloader] = useState(false);
+  const [allImages, setAllImages] = useState<ArtItem[]>([]);
+  const [loading,   setLoading]   = useState(true);
 
   useEffect(() => {
     if (!sessionStorage.getItem("visited")) {
       setShowPreloader(true);
       sessionStorage.setItem("visited", "1");
     }
+    loadImages();
   }, []);
+
+  const loadImages = async () => {
+    const { data } = await supabase
+      .from("images")
+      .select("*")
+      .order("created_at", { ascending: true });
+    setAllImages(data ?? []);
+    setLoading(false);
+  };
+
+  // تصفية حسب القسم
+  const galleryImages  = allImages.filter(img => ["icons","gilding","mosaic"].includes(img.section));
+  const variousImages  = allImages.filter(img => img.section === "various");
+  const muralsImages   = allImages.filter(img => img.section === "murals");
 
   return (
     <>
@@ -484,7 +473,14 @@ export default function Home() {
           </div>
         </section>
 
-        <GallerySection />
+        {/* GALLERY */}
+        {loading ? (
+          <section className="py-40 flex justify-center">
+            <span className="w-8 h-8 border-2 border-[#b8955a] border-t-transparent rounded-full animate-spin" />
+          </section>
+        ) : (
+          <GallerySection allImages={galleryImages} />
+        )}
 
         {/* MURALS */}
         <section id="murals" className="bg-[#0a0a0a] py-16 sm:py-24 md:py-40 overflow-hidden">
@@ -505,45 +501,47 @@ export default function Home() {
               style={{ background: "linear-gradient(to right, transparent, #b8955a, transparent)" }} />
           </div>
 
-          <div className="overflow-hidden">
-            <div className="flex gap-4 sm:gap-8 murals-ticker" style={{ width: "max-content" }}>
-              {[...muralsData, ...muralsData, ...muralsData].map((m, i) => (
-                <div key={i} className="relative group flex-shrink-0 overflow-hidden" style={{ width: "clamp(280px,38vw,600px)" }}>
-                  <img src={m.src} alt={m.title} loading={i < 10 ? "eager" : "lazy"}
-                    className="w-full object-cover group-hover:scale-105 transition-transform duration-700"
-                    style={{ height: "clamp(200px,26vw,450px)" }} />
-                  <div className="absolute inset-0 bg-black/45 group-hover:bg-black/20 transition-colors duration-500" />
-                  <div className="absolute inset-0 flex flex-col justify-end p-4 sm:p-6 md:p-8">
-                    <p className="text-white text-[10px] sm:text-sm tracking-[0.3em] uppercase font-semibold mb-1">{m.title}</p>
-                    <p className="text-[#f0cc8a] text-[9px] sm:text-[10px] tracking-[0.25em] uppercase mb-2">{m.location}</p>
-                    <div className="flex flex-wrap gap-2 text-[9px] tracking-[0.2em] text-neutral-300 uppercase">
-                      <span>{m.medium}</span><span className="text-neutral-600">·</span>
-                      <span>{m.size}</span><span className="text-neutral-600">·</span>
-                      <span>{m.year}</span>
+          {/* ticker */}
+          {muralsImages.length > 0 && (
+            <div className="overflow-hidden">
+              <div className="flex gap-4 sm:gap-8 murals-ticker" style={{ width: "max-content" }}>
+                {[...muralsImages, ...muralsImages, ...muralsImages].map((m, i) => (
+                  <div key={i} className="relative group flex-shrink-0 overflow-hidden" style={{ width: "clamp(280px,38vw,600px)" }}>
+                    <img src={m.src} alt={m.title} loading={i < 10 ? "eager" : "lazy"}
+                      className="w-full object-cover group-hover:scale-105 transition-transform duration-700"
+                      style={{ height: "clamp(200px,26vw,450px)" }} />
+                    <div className="absolute inset-0 bg-black/45 group-hover:bg-black/20 transition-colors duration-500" />
+                    <div className="absolute inset-0 flex flex-col justify-end p-4 sm:p-6 md:p-8">
+                      <p className="text-white text-[10px] sm:text-sm tracking-[0.3em] uppercase font-semibold mb-1">{m.title}</p>
+                      <p className="text-[#f0cc8a] text-[9px] sm:text-[10px] tracking-[0.25em] uppercase mb-2">{m.location}</p>
+                      <div className="flex flex-wrap gap-2 text-[9px] tracking-[0.2em] text-neutral-300 uppercase">
+                        <span>{m.medium}</span><span className="text-neutral-600">·</span>
+                        <span>{m.size}</span><span className="text-neutral-600">·</span>
+                        <span>{m.year}</span>
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
-          </div>
+          )}
 
           <div className="text-center mt-12 sm:mt-16 md:mt-20">
             <a href="/murals"
               className="group inline-flex items-center gap-4 border border-neutral-700 text-neutral-300 px-8 sm:px-12 py-4 tracking-[0.35em] text-sm uppercase font-semibold hover:bg-[#b8955a] hover:border-[#b8955a] hover:text-white transition-all duration-500">
-              {t.exploreMurals}
-              <span className="group-hover:translate-x-2 transition-transform duration-300">→</span>
+              {t.exploreMurals}<span className="group-hover:translate-x-2 transition-transform duration-300">→</span>
             </a>
           </div>
         </section>
 
-        <ExhibitionsSection />
+        {/* EXHIBITIONS */}
+        {!loading && <ExhibitionsSection items={variousImages} />}
 
         {/* ABOUT */}
         <section id="about" className="py-20 sm:py-40 md:py-60 px-4 sm:px-10 md:px-20 lg:px-32 bg-[#f9f9f9] dark:bg-[#080808] overflow-hidden">
           <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-10 sm:gap-16 md:gap-20 items-center">
             <motion.div className="lg:col-span-5 relative"
-              initial={{ opacity: 0, x: -40 }} whileInView={{ opacity: 1, x: 0 }}
-              transition={{ duration: 1.4 }} viewport={{ once: true }}>
+              initial={{ opacity: 0, x: -40 }} whileInView={{ opacity: 1, x: 0 }} transition={{ duration: 1.4 }} viewport={{ once: true }}>
               <div className="absolute -inset-4 border border-[#b8955a]/25 translate-x-6 translate-y-6 hidden md:block" />
               <div className="relative overflow-hidden shadow-2xl" style={{ paddingBottom: "133%" }}>
                 <motion.img src="/icons/artist.png" alt="Dana Fawaz Dahdal"
@@ -553,21 +551,18 @@ export default function Home() {
               <p className="mt-5 sm:mt-8 text-xs tracking-[0.4em] uppercase text-neutral-400 text-center font-medium">{t.handCaption}</p>
             </motion.div>
             <div className="lg:col-span-7 space-y-8 sm:space-y-14">
-              <motion.div initial={{ opacity: 0, y: 30 }} whileInView={{ opacity: 1, y: 0 }}
-                transition={{ duration: 1, delay: 0.3 }} viewport={{ once: true }}>
+              <motion.div initial={{ opacity: 0, y: 30 }} whileInView={{ opacity: 1, y: 0 }} transition={{ duration: 1, delay: 0.3 }} viewport={{ once: true }}>
                 <span className="text-[#b8955a] text-xs sm:text-sm tracking-[0.5em] uppercase block mb-3 font-semibold">{t.philosophy}</span>
                 <h2 className="text-3xl sm:text-4xl md:text-5xl font-semibold tracking-[0.1em] leading-tight">{t.beyondVisible}</h2>
               </motion.div>
               <motion.div className="space-y-5 sm:space-y-8 text-neutral-600 dark:text-neutral-400 leading-[1.9] sm:leading-[2.2] text-base sm:text-lg max-w-xl"
-                initial={{ opacity: 0 }} whileInView={{ opacity: 1 }}
-                transition={{ duration: 1, delay: 0.5 }} viewport={{ once: true }}>
+                initial={{ opacity: 0 }} whileInView={{ opacity: 1 }} transition={{ duration: 1, delay: 0.5 }} viewport={{ once: true }}>
                 <p>{t.bio1}</p>
                 <p className="border-l-2 border-[#b8955a] pl-5 sm:pl-8 py-2 italic">{t.quote}</p>
                 <p>{t.bio2}</p>
               </motion.div>
               <motion.div className="flex flex-wrap gap-3 sm:gap-6"
-                initial={{ opacity: 0 }} whileInView={{ opacity: 1 }}
-                transition={{ duration: 1, delay: 0.8 }} viewport={{ once: true }}>
+                initial={{ opacity: 0 }} whileInView={{ opacity: 1 }} transition={{ duration: 1, delay: 0.8 }} viewport={{ once: true }}>
                 {socials.map(s => (
                   <a key={s.label} href={s.href} target="_blank" rel="noopener noreferrer"
                     className="flex items-center gap-2 sm:gap-3 px-4 sm:px-5 py-2.5 border border-neutral-300 dark:border-neutral-700 text-sm tracking-[0.3em] uppercase font-semibold text-neutral-700 dark:text-neutral-300 transition-all duration-300"
@@ -583,8 +578,7 @@ export default function Home() {
 
         {/* CONTACT */}
         <section id="contact" className="bg-neutral-100 dark:bg-neutral-950 py-16 sm:py-28 md:py-40 px-4 sm:px-6 flex items-center justify-center">
-          <motion.div initial={{ opacity: 0, y: 30 }} whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true }} transition={{ duration: 1 }} className="w-full max-w-xl">
+          <motion.div initial={{ opacity: 0, y: 30 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} transition={{ duration: 1 }} className="w-full max-w-xl">
             <SectionHeader label={`— ${t.commissionWork} —`} title={t.contact} />
             <div className="flex flex-col gap-0">
               {[
