@@ -5,9 +5,8 @@ import { useState, useRef, useEffect } from "react";
 import { supabase } from "../lib/supabase";
 import type { DbImage } from "../lib/supabase";
 
-type Section = "hero" | "icons" | "gilding" | "mosaic" | "various" | "murals" | "artist";
-
-type ImageItem = DbImage;
+type Section  = "hero" | "icons" | "gilding" | "mosaic" | "various" | "murals" | "artist";
+type ImageItem = DbImage & { order_index?: number };
 
 const ADMIN_PASSWORD = "danadahdal";
 
@@ -65,28 +64,33 @@ const DICT: [string, string][] = [
   ["القيامة","The Resurrection"],
 ];
 
-function arToEn(text: string): string {
-  if (!text.trim()) return "";
+/* ✦ القاموس المحلي أولاً — لو مش موجود يرجع "" */
+function dictLookup(text: string): string {
+  if (!text?.trim()) return "";
   for (const [ar, en] of DICT) { if (text.trim() === ar) return en; }
   let r = text;
   for (const [ar, en] of DICT) { r = r.split(ar).join(en); }
-  return r;
+  return r === text ? "" : r;
 }
 
-/* ── emptyForm ── */
+/* ✦ MyMemory API Translate */
+async function translateAPI(text: string): Promise<string> {
+  const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=ar|en`;
+  const res  = await fetch(url);
+  const data = await res.json();
+  return data?.responseData?.translatedText?.trim() ?? "";
+}
+
 type FormData = Omit<ImageItem, "id"> & { id?: string };
 const emptyForm = (): FormData => ({
   src:"", title:"", medium:"", dims:"", year:"", location:"",
-  section:"icons", size:"",
-  title_ar:"", medium_ar:"", location_ar:"",
+  section:"icons", size:"", title_ar:"", medium_ar:"", location_ar:"",
 });
 
-/* ════════════════════════
-   LOGIN
-════════════════════════ */
+/* ════════ LOGIN ════════ */
 function LoginScreen({ onLogin }: { onLogin: () => void }) {
-  const [pw, setPw] = useState("");
-  const [err, setErr] = useState(false);
+  const [pw, setPw]       = useState("");
+  const [err, setErr]     = useState(false);
   const [shake, setShake] = useState(false);
   const submit = () => {
     if (pw === ADMIN_PASSWORD) onLogin();
@@ -122,7 +126,7 @@ function LoginScreen({ onLogin }: { onLogin: () => void }) {
   );
 }
 
-function Toast({ msg, type = "success" }: { msg: string; type?: "success" | "error" | "loading" }) {
+function Toast({ msg, type = "success" }: { msg: string; type?: "success"|"error"|"loading" }) {
   const bg = type === "error" ? "bg-red-500" : type === "loading" ? "bg-neutral-700" : "bg-[#b8955a]";
   return (
     <div className={`fixed top-6 left-1/2 -translate-x-1/2 z-[300] ${bg} text-white text-sm tracking-[0.2em] uppercase font-bold px-8 py-4 shadow-2xl whitespace-nowrap flex items-center gap-3`}>
@@ -132,32 +136,87 @@ function Toast({ msg, type = "success" }: { msg: string; type?: "success" | "err
   );
 }
 
-/* ── DualField ── */
-function DualField({ arLabel, enLabel, arValue, enValue, onArChange, onEnChange, arPh, enPh }: {
-  arLabel: string; enLabel: string;
-  arValue: string; enValue: string;
+/* ══════════════════════════════════
+   DualField مع زرار ترجمة لكل حقل
+   ✦ القاموس أولاً → MyMemory API fallback
+══════════════════════════════════ */
+function DualField({
+  arLabel, enLabel, arValue, enValue, onArChange, onEnChange, arPh, enPh,
+}: {
+  arLabel: string; enLabel: string; arValue: string; enValue: string;
   onArChange: (v: string) => void; onEnChange: (v: string) => void;
   arPh: string; enPh: string;
 }) {
+  const [loading, setLoading] = useState(false);
+  const [status,  setStatus]  = useState<"idle"|"ok"|"err">("idle");
+
+  const handleTranslate = async () => {
+    const text = arValue.trim();
+    if (!text) return;
+
+    /* 1 — قاموس محلي */
+    const fromDict = dictLookup(text);
+    if (fromDict) {
+      onEnChange(fromDict);
+      setStatus("ok");
+      setTimeout(() => setStatus("idle"), 2000);
+      return;
+    }
+
+    /* 2 — MyMemory API */
+    setLoading(true);
+    setStatus("idle");
+    try {
+      const result = await translateAPI(text);
+      if (result) { onEnChange(result); setStatus("ok"); }
+      else          setStatus("err");
+    } catch {
+      setStatus("err");
+    } finally {
+      setLoading(false);
+      setTimeout(() => setStatus("idle"), 2500);
+    }
+  };
+
+  const btnColor = status === "ok"  ? "bg-green-700 border-green-600 text-white"
+                 : status === "err" ? "bg-red-900 border-red-700 text-red-300"
+                 : "border-[#b8955a] text-[#b8955a] hover:bg-[#b8955a] hover:text-black";
+
   return (
-    <div className="grid grid-cols-2 border border-neutral-700 overflow-hidden" dir="ltr">
-      <div className="bg-[#1e1a10] p-3 border-r border-neutral-700">
-        <p className="text-[#b8955a] text-[10px] tracking-widest uppercase font-bold mb-2">✏ {arLabel}</p>
-        <input value={arValue} onChange={e => onArChange(e.target.value)} placeholder={arPh} dir="rtl"
-          className="w-full bg-transparent border-b border-[#b8955a]/50 focus:border-[#b8955a] text-white text-sm py-1.5 placeholder:text-neutral-600 outline-none transition-colors text-right" />
-      </div>
-      <div className="bg-[#141414] p-3">
-        <p className="text-neutral-500 text-[10px] tracking-widest uppercase mb-2">🔤 {enLabel}</p>
-        <input value={enValue} onChange={e => onEnChange(e.target.value)} placeholder={enPh} dir="ltr"
-          className="w-full bg-transparent border-b border-neutral-700 focus:border-[#b8955a] text-neutral-300 text-sm py-1.5 placeholder:text-neutral-700 outline-none transition-colors" />
+    <div className="border border-neutral-700 overflow-hidden" dir="ltr">
+      <div className="grid grid-cols-2">
+        {/* Arabic column */}
+        <div className="bg-[#1e1a10] p-3 border-r border-neutral-700">
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-[#b8955a] text-[10px] tracking-widest uppercase font-bold">✏ {arLabel}</p>
+            <button
+              onClick={handleTranslate}
+              disabled={loading || !arValue.trim()}
+              className={`flex items-center gap-1 px-2 py-1 text-[9px] tracking-widest uppercase border transition-all disabled:opacity-30 ${btnColor}`}>
+              {loading
+                ? <span className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                : status === "ok"  ? "✓"
+                : status === "err" ? "✗"
+                : <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 8l6 6M4 14l6-6 2-3M2 5h7M7 2v3M22 22l-5-10-5 10M14 18h6"/></svg>}
+              {!loading && status === "idle" && <span>EN</span>}
+            </button>
+          </div>
+          <input value={arValue} onChange={e => onArChange(e.target.value)} placeholder={arPh} dir="rtl"
+            className="w-full bg-transparent border-b border-[#b8955a]/50 focus:border-[#b8955a] text-white text-sm py-1.5 placeholder:text-neutral-600 outline-none transition-colors text-right" />
+        </div>
+
+        {/* English column */}
+        <div className="bg-[#141414] p-3">
+          <p className="text-neutral-500 text-[10px] tracking-widest uppercase mb-2">🔤 {enLabel}</p>
+          <input value={enValue} onChange={e => onEnChange(e.target.value)} placeholder={enPh} dir="ltr"
+            className="w-full bg-transparent border-b border-neutral-700 focus:border-[#b8955a] text-neutral-300 text-sm py-1.5 placeholder:text-neutral-700 outline-none transition-colors" />
+        </div>
       </div>
     </div>
   );
 }
 
-/* ════════════════════════
-   DASHBOARD
-════════════════════════ */
+/* ════════ DASHBOARD ════════ */
 function Dashboard() {
   const [images,     setImages]     = useState<ImageItem[]>([]);
   const [loading,    setLoading]    = useState(true);
@@ -167,7 +226,10 @@ function Dashboard() {
   const [showForm,   setShowForm]   = useState(false);
   const [confirmDel, setConfirmDel] = useState<string|null>(null);
   const [toast,      setToast]      = useState<{msg:string; type:"success"|"error"|"loading"}|null>(null);
-  const fileRef = useRef<HTMLInputElement>(null);
+  const [hasChanges, setHasChanges] = useState(false);
+  const [dragOver,   setDragOver]   = useState<string|null>(null);
+  const dragItem = useRef<string|null>(null);
+  const fileRef  = useRef<HTMLInputElement>(null);
 
   const showToast = (msg: string, type: "success"|"error"|"loading" = "success", dur = 3000) => {
     setToast({ msg, type });
@@ -176,165 +238,115 @@ function Dashboard() {
 
   const setF = (k: keyof FormData, v: string) => setForm(f => ({ ...f, [k]: v }));
 
-  /* ── Load from Supabase ── */
-  useEffect(() => {
-    loadImages();
-  }, []);
+  useEffect(() => { loadImages(); }, []);
 
   const loadImages = async () => {
     setLoading(true);
     const { data, error } = await supabase
-      .from("images")
-      .select("*")
-      .order("created_at", { ascending: false });
-
-    if (error) {
-      showToast("✗ خطأ في تحميل البيانات", "error");
-      console.error(error);
-    } else {
-      setImages(data ?? []);
-    }
+      .from("images").select("*").order("created_at", { ascending: true });
+    if (error) showToast("✗ خطأ في تحميل البيانات", "error");
+    else setImages(data ?? []);
     setLoading(false);
   };
 
-  /* ── Upload image to Supabase Storage ── */
   const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-
     showToast("جاري رفع الصورة...", "loading", 0);
-
     const ext  = file.name.split(".").pop();
     const name = `${Date.now()}.${ext}`;
-
     const { data, error } = await supabase.storage
-      .from("gallery-images")
-      .upload(name, file, { cacheControl: "3600", upsert: false });
-
-    if (error) {
-      showToast("✗ فشل رفع الصورة: " + error.message, "error");
-      console.error(error);
-      return;
-    }
-
-    const { data: { publicUrl } } = supabase.storage
-      .from("gallery-images")
-      .getPublicUrl(data.path);
-
+      .from("gallery-images").upload(name, file, { cacheControl: "3600", upsert: false });
+    if (error) { showToast("✗ فشل رفع الصورة: " + error.message, "error"); return; }
+    const { data: { publicUrl } } = supabase.storage.from("gallery-images").getPublicUrl(data.path);
     setF("src", publicUrl);
     showToast("✓ تم رفع الصورة");
   };
 
-  /* ── Translate ── */
-  const handleTranslate = () => {
-    const arT = (form.title_ar    ?? "").trim();
-    const arM = (form.medium_ar   ?? "").trim();
-    const arL = (form.location_ar ?? "").trim();
-    if (!arT && !arM && !arL) { showToast("⚠ اكتب في الحقول العربية أولاً", "error"); return; }
-
-    const enT = arT ? arToEn(arT) : "";
-    const enM = arM ? arToEn(arM) : "";
-    const enL = arL ? arToEn(arL) : "";
-
-    setForm(f => ({
-      ...f,
-      title:    enT || f.title,
-      medium:   enM || f.medium,
-      location: enL || f.location,
-    }));
-
-    const incomplete = [
-      (arT && enT === arT) ? "العنوان" : "",
-      (arM && enM === arM) ? "الخامة"  : "",
-      (arL && enL === arL) ? "الموقع"  : "",
-    ].filter(Boolean);
-
-    showToast(incomplete.length > 0
-      ? `✓ تمت الترجمة — أكمل يدوياً: ${incomplete.join("، ")}`
-      : "✓ تمت الترجمة بالكامل"
-    );
-  };
-
-  /* ── Save (INSERT or UPDATE) ── */
   const handleSaveItem = async () => {
     if (!form.src)   { showToast("⚠ أضف صورة أولاً", "error"); return; }
     if (!form.title) { showToast("⚠ أدخل العنوان الإنجليزي", "error"); return; }
-
     showToast("جاري الحفظ...", "loading", 0);
 
     const payload = {
-      src:         form.src,
-      title:       form.title,
-      medium:      form.medium       || "",
-      dims:        form.dims         || "",
-      year:        form.year         || "",
-      location:    form.location     || "",
-      section:     form.section,
-      size:        form.size         || "",
-      title_ar:    form.title_ar     || "",
-      medium_ar:   form.medium_ar    || "",
-      location_ar: form.location_ar  || "",
+      src: form.src, title: form.title, medium: form.medium || "",
+      dims: form.dims || "", year: form.year || "", location: form.location || "",
+      section: form.section, size: form.size || "",
+      title_ar: form.title_ar || "", medium_ar: form.medium_ar || "", location_ar: form.location_ar || "",
     };
 
     if (editId) {
-      // UPDATE
-      const { error } = await supabase
-        .from("images")
-        .update(payload)
-        .eq("id", editId);
-
+      const { error } = await supabase.from("images").update(payload).eq("id", editId);
       if (error) { showToast("✗ فشل التحديث: " + error.message, "error"); return; }
       setImages(imgs => imgs.map(img => img.id === editId ? { ...payload, id: editId } : img));
       showToast("✓ تم تحديث الصورة");
     } else {
-      // INSERT
       const newId = `img-${Date.now()}`;
-      const { error } = await supabase
-        .from("images")
-        .insert([{ id: newId, ...payload }]);
-
+      const { error } = await supabase.from("images").insert([{ id: newId, ...payload }]);
       if (error) { showToast("✗ فشل الإضافة: " + error.message, "error"); return; }
-      setImages(imgs => [{ id: newId, ...payload }, ...imgs]);
+      setImages(imgs => [...imgs, { id: newId, ...payload }]);
       showToast("✓ تمت إضافة الصورة");
     }
-
+    setHasChanges(false);
     resetForm();
   };
 
-  /* ── Delete ── */
+  const handleGlobalSave = async () => {
+    showToast("جاري حفظ الترتيب...", "loading", 0);
+    try {
+      const updates = images.map((img, idx) =>
+        supabase.from("images").update({ created_at: new Date(Date.now() + idx * 1000).toISOString() }).eq("id", img.id)
+      );
+      await Promise.all(updates);
+      setHasChanges(false);
+      showToast("✓ تم حفظ الترتيب");
+    } catch {
+      showToast("✗ فشل حفظ الترتيب", "error");
+    }
+  };
+
   const handleDelete = async (id: string) => {
     showToast("جاري الحذف...", "loading", 0);
-
     const { error } = await supabase.from("images").delete().eq("id", id);
     if (error) { showToast("✗ فشل الحذف: " + error.message, "error"); return; }
-
     setImages(imgs => imgs.filter(img => img.id !== id));
     setConfirmDel(null);
     showToast("✓ تم الحذف");
   };
 
-  /* ── Edit ── */
   const handleEdit = (img: ImageItem) => {
     setForm({
-      src:         img.src,
-      title:       img.title,
-      medium:      img.medium,
-      dims:        img.dims,
-      year:        img.year,
-      location:    img.location,
-      section:     img.section as Section,
-      size:        img.size,
-      title_ar:    img.title_ar    || "",
-      medium_ar:   img.medium_ar   || "",
-      location_ar: img.location_ar || "",
+      src: img.src, title: img.title, medium: img.medium,
+      dims: img.dims, year: img.year, location: img.location,
+      section: img.section as Section, size: img.size,
+      title_ar: img.title_ar || "", medium_ar: img.medium_ar || "", location_ar: img.location_ar || "",
     });
-    setEditId(img.id);
-    setShowForm(true);
+    setEditId(img.id); setShowForm(true);
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
   const resetForm = () => { setForm(emptyForm()); setEditId(null); setShowForm(false); };
-  const filtered  = activeTab === "all" ? images : images.filter(img => img.section === activeTab);
+
+  const onDragStart = (id: string) => { dragItem.current = id; };
+  const onDragOver  = (e: React.DragEvent, id: string) => { e.preventDefault(); setDragOver(id); };
+  const onDrop      = (targetId: string) => {
+    const fromId = dragItem.current;
+    if (!fromId || fromId === targetId) { setDragOver(null); return; }
+    setImages(imgs => {
+      const arr  = [...imgs];
+      const from = arr.findIndex(i => i.id === fromId);
+      const to   = arr.findIndex(i => i.id === targetId);
+      if (from === -1 || to === -1) return imgs;
+      const [item] = arr.splice(from, 1);
+      arr.splice(to, 0, item);
+      return arr;
+    });
+    setHasChanges(true);
+    setDragOver(null);
+    dragItem.current = null;
+  };
+
+  const filtered = activeTab === "all" ? images : images.filter(img => img.section === activeTab);
 
   return (
     <div className="min-h-screen bg-[#0d0d0d] text-white" dir="rtl">
@@ -355,17 +367,25 @@ function Dashboard() {
             <div>
               <h1 className="text-[#b8955a] text-base sm:text-xl tracking-[0.25em] uppercase font-semibold">لوحة التحكم</h1>
               <p className="text-neutral-600 text-xs tracking-[0.3em] hidden sm:block mt-0.5">
-                Dana Fawaz Dahdal · {images.length} صورة في قاعدة البيانات
+                {images.length} صورة · {hasChanges ? "⚠ يوجد تغييرات غير محفوظة" : "✓ محفوظ"}
               </p>
             </div>
           </div>
           <div className="flex items-center gap-2 sm:gap-3">
-            <button onClick={loadImages} title="تحديث البيانات"
-              className="w-10 h-10 flex items-center justify-center border border-neutral-700 text-neutral-400 hover:border-[#b8955a] hover:text-[#b8955a] transition-all">
+            <button onClick={loadImages}
+              className="w-10 h-10 flex items-center justify-center border border-neutral-700 text-neutral-400 hover:border-[#b8955a] hover:text-[#b8955a] transition-all" title="تحديث">
               <svg viewBox="0 0 24 24" className="w-4 h-4 fill-none stroke-current" strokeWidth="2">
                 <path d="M1 4v6h6"/><path d="M23 20v-6h-6"/>
                 <path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10M23 14l-4.64 4.36A9 9 0 0 1 3.51 15"/>
               </svg>
+            </button>
+            <button onClick={handleGlobalSave}
+              className={`flex items-center gap-2 px-4 sm:px-6 py-3 text-sm tracking-[0.3em] uppercase font-semibold transition-all border ${hasChanges ? "bg-[#b8955a] border-[#b8955a] text-black hover:bg-[#d4af7a] animate-pulse" : "border-neutral-700 text-neutral-500 hover:border-[#b8955a] hover:text-[#b8955a]"}`}>
+              <svg viewBox="0 0 24 24" className="w-4 h-4 fill-none stroke-current" strokeWidth="2">
+                <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/>
+                <polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/>
+              </svg>
+              حفظ الترتيب{hasChanges ? " *" : ""}
             </button>
             <button onClick={() => { resetForm(); setShowForm(v => !v); }}
               className="flex items-center gap-2 border border-[#b8955a] text-[#b8955a] px-4 sm:px-6 py-3 text-sm tracking-[0.3em] uppercase hover:bg-[#b8955a] hover:text-black transition-all font-semibold">
@@ -407,7 +427,7 @@ function Dashboard() {
                     <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
                     <polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
                   </svg>
-                  <span className="text-neutral-500 text-xs tracking-widest uppercase">اضغط لرفع صورة على Supabase</span>
+                  <span className="text-neutral-500 text-xs tracking-widest uppercase">اضغط لرفع صورة</span>
                 </div>
                 <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handleFile} />
                 <input value={form.src} onChange={e => setF("src", e.target.value)}
@@ -426,45 +446,45 @@ function Dashboard() {
           <div className="mb-4 p-3 bg-[#1a1a1a] border-r-4 border-[#b8955a]" dir="rtl">
             <p className="text-[#b8955a] text-sm font-bold mb-1">كيفية الاستخدام:</p>
             <p className="text-neutral-400 text-xs leading-6">
-              ١. اكتب في <strong className="text-[#b8955a]">الخانات العربية (يسار)</strong> ←
-              ٢. اضغط <strong className="text-[#b8955a]">«ترجمة عربي → إنجليزي»</strong> ←
-              ٣. تُملأ <strong className="text-neutral-300">الخانات الإنجليزية (يمين)</strong> تلقائياً
+              اكتب في الحقل العربي ← اضغط <strong className="text-[#b8955a]">زرار «EN»</strong> في نفس الحقل ← الترجمة تظهر تلقائياً في الجانب الإنجليزي
             </p>
           </div>
 
-          {/* Dual Fields */}
+          {/* ✦ DualFields — كل واحدة مع زرار ترجمة خاص بيها */}
           <div className="space-y-3 mb-6">
             <DualField
-              arLabel="العنوان عربي"  enLabel="Title English"
-              arValue={form.title_ar    ?? ""} enValue={form.title}
-              onArChange={v => setF("title_ar",    v)} onEnChange={v => setF("title",    v)}
-              arPh="مثال: النزول إلى الجحيم" enPh="e.g. The Descent into Hades"
+              arLabel="العنوان عربي"   enLabel="Title English"
+              arValue={form.title_ar ?? ""} enValue={form.title}
+              onArChange={v => setF("title_ar", v)}   onEnChange={v => setF("title", v)}
+              arPh="مثال: النزول إلى الجحيم"          enPh="e.g. The Descent into Hades"
             />
             <DualField
               arLabel="الخامة عربي"   enLabel="Medium English"
-              arValue={form.medium_ar   ?? ""} enValue={form.medium}
-              onArChange={v => setF("medium_ar",   v)} onEnChange={v => setF("medium",   v)}
-              arPh="مثال: بيضة التمبيرا"           enPh="e.g. Egg Tempera & Gold Leaf"
+              arValue={form.medium_ar ?? ""} enValue={form.medium}
+              onArChange={v => setF("medium_ar", v)}  onEnChange={v => setF("medium", v)}
+              arPh="مثال: بيضة التمبيرا وورق الذهب"  enPh="e.g. Egg Tempera & Gold Leaf"
             />
             <DualField
               arLabel="الموقع عربي"   enLabel="Location English"
               arValue={form.location_ar ?? ""} enValue={form.location}
               onArChange={v => setF("location_ar", v)} onEnChange={v => setF("location", v)}
-              arPh="مثال: مجموعة خاصة، بيروت"      enPh="e.g. Private Collection, Beirut"
+              arPh="مثال: مجموعة خاصة، بيروت"        enPh="e.g. Private Collection, Beirut"
             />
 
+            {/* Dims + Year */}
             <div className="grid grid-cols-2 gap-4" dir="ltr">
-              <div className="flex flex-col gap-1.5">
-                <label className="text-neutral-400 text-xs tracking-[0.35em] uppercase">Dimensions</label>
-                <input value={form.dims} onChange={e => setF("dims", e.target.value)} placeholder="45 × 60 cm"
-                  className="bg-[#1a1a1a] border-b-2 border-neutral-700 focus:border-[#b8955a] text-white text-sm py-2.5 placeholder:text-neutral-600 outline-none transition-colors" />
-              </div>
-              <div className="flex flex-col gap-1.5">
-                <label className="text-neutral-400 text-xs tracking-[0.35em] uppercase">Year</label>
-                <input value={form.year} onChange={e => setF("year", e.target.value)} placeholder="2024"
-                  className="bg-[#1a1a1a] border-b-2 border-neutral-700 focus:border-[#b8955a] text-white text-sm py-2.5 placeholder:text-neutral-600 outline-none transition-colors" />
-              </div>
+              {[
+                { label:"Dimensions", k:"dims" as keyof FormData, ph:"45 × 60 cm" },
+                { label:"Year",       k:"year" as keyof FormData, ph:"2024"        },
+              ].map(f => (
+                <div key={f.k} className="flex flex-col gap-1.5">
+                  <label className="text-neutral-400 text-xs tracking-[0.35em] uppercase">{f.label}</label>
+                  <input value={form[f.k] as string} onChange={e => setF(f.k, e.target.value)} placeholder={f.ph}
+                    className="bg-[#1a1a1a] border-b-2 border-neutral-700 focus:border-[#b8955a] text-white text-sm py-2.5 placeholder:text-neutral-600 outline-none transition-colors" />
+                </div>
+              ))}
             </div>
+
             {form.section === "murals" && (
               <div className="flex flex-col gap-1.5 w-1/2" dir="ltr">
                 <label className="text-neutral-400 text-xs tracking-[0.35em] uppercase">Scale</label>
@@ -474,15 +494,10 @@ function Dashboard() {
             )}
           </div>
 
-          {/* Buttons */}
           <div className="flex flex-wrap items-center gap-3">
             <button onClick={handleSaveItem}
               className="px-8 py-3.5 bg-[#b8955a] text-black text-sm tracking-[0.35em] uppercase font-bold hover:bg-[#d4af7a] transition-colors">
               {editId ? "تحديث الصورة" : "إضافة الصورة"}
-            </button>
-            <button onClick={handleTranslate}
-              className="flex items-center gap-2 px-6 py-3.5 border-2 border-[#b8955a] text-[#b8955a] text-sm tracking-[0.25em] uppercase font-bold hover:bg-[#b8955a] hover:text-black transition-all">
-              🔤 ترجمة عربي → إنجليزي
             </button>
             <button onClick={resetForm}
               className="px-5 py-3.5 text-neutral-500 text-sm tracking-[0.3em] uppercase hover:text-neutral-300 transition-colors">
@@ -507,28 +522,41 @@ function Dashboard() {
         })}
       </div>
 
+      <div className="px-4 sm:px-6 pt-3 pb-0">
+        <p className="text-neutral-600 text-xs tracking-[0.3em]">⠿ اسحب الصور لإعادة ترتيبها — ثم اضغط «حفظ الترتيب»</p>
+      </div>
+
       {/* GRID */}
       {loading ? (
         <div className="flex items-center justify-center py-32 gap-3 text-neutral-500">
           <span className="w-6 h-6 border-2 border-[#b8955a] border-t-transparent rounded-full animate-spin" />
-          <span className="text-sm tracking-[0.3em] uppercase">جاري التحميل من Supabase...</span>
+          <span className="text-sm tracking-[0.3em] uppercase">جاري التحميل...</span>
         </div>
       ) : (
         <div className="p-4 sm:p-6 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 sm:gap-4">
           {filtered.map(img => (
-            <div key={img.id} className="group bg-[#161616] border border-neutral-800 hover:border-[#b8955a]/60 transition-all">
+            <div key={img.id}
+              draggable
+              onDragStart={() => onDragStart(img.id)}
+              onDragOver={e => onDragOver(e, img.id)}
+              onDragEnd={() => setDragOver(null)}
+              onDrop={() => onDrop(img.id)}
+              className={`group bg-[#161616] border transition-all cursor-grab active:cursor-grabbing ${dragOver === img.id ? "border-[#b8955a] border-dashed opacity-70" : "border-neutral-800 hover:border-[#b8955a]/60"}`}>
               <div className="relative overflow-hidden" style={{ paddingBottom: "120%" }}>
                 <img src={img.src} alt={img.title}
-                  className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+                  className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                  draggable={false} />
                 <span className="absolute top-2 right-2 bg-black/75 text-[#b8955a] text-xs tracking-widest uppercase px-2 py-1">
                   {SECTION_LABELS[img.section as Section] ?? img.section}
                 </span>
+                <span className="absolute top-2 left-2 bg-black/60 text-neutral-400 text-xs px-1.5 py-0.5 opacity-0 group-hover:opacity-100 transition-opacity">⠿</span>
               </div>
               <div className="p-3">
                 <h3 className="text-sm font-semibold text-neutral-100 lc2 leading-snug">{img.title}</h3>
-                {img.medium   && <p className="text-xs text-neutral-500 italic mt-1 lc1">{img.medium}</p>}
-                {img.location && <p className="text-xs text-neutral-600 mt-1 truncate">{img.location}</p>}
-                {img.year     && <p className="text-xs text-[#b8955a]/70 mt-1">{img.year}</p>}
+                {img.title_ar  && <p className="text-xs text-[#b8955a]/60 mt-0.5 lc1" dir="rtl">{img.title_ar}</p>}
+                {img.medium    && <p className="text-xs text-neutral-500 italic mt-1 lc1">{img.medium}</p>}
+                {img.location  && <p className="text-xs text-neutral-600 mt-1 truncate">{img.location}</p>}
+                {img.year      && <p className="text-xs text-[#b8955a]/70 mt-1">{img.year}</p>}
               </div>
               <div className="border-t border-neutral-800 flex">
                 <button onClick={() => handleEdit(img)}
@@ -551,7 +579,7 @@ function Dashboard() {
           ))}
           {filtered.length === 0 && !loading && (
             <div className="col-span-full text-center py-20 text-neutral-600 text-sm tracking-[0.4em] uppercase">
-              لا توجد صور في هذا القسم — اضغط «+ إضافة» لإضافة صور
+              لا توجد صور — اضغط «+ إضافة»
             </div>
           )}
         </div>

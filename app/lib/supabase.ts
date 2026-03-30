@@ -16,7 +16,10 @@ export interface DbImage {
   location:    string
   section:     string
   size:        string
-  title_ar:    string
-  medium_ar:   string
-  location_ar: string
+  // ✦ الحقول العربية — nullable لأنها اختيارية
+  title_ar:    string | null
+  medium_ar:   string | null
+  location_ar: string | null
+  // ✦ مطلوبة للـ ordering في الـ queries
+  created_at?: string
 }

@@ -11,23 +11,66 @@ import type { DbImage } from "../lib/supabase";
 type MuralItem = DbImage;
 
 /* ══════════════════════════════════
+   WATERMARK — Shutterstock style
+══════════════════════════════════ */
+function WatermarkOverlay() {
+  const id = useRef(`wm-${Math.random().toString(36).slice(2, 8)}`).current;
+  return (
+    <svg
+      direction="ltr"
+      style={{
+        position: "absolute", top: 0, left: 0, right: 0, bottom: 0,
+        width: "100%", height: "100%",
+        pointerEvents: "none", userSelect: "none", zIndex: 5,
+        direction: "ltr",
+      }}
+      xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <defs>
+        <pattern id={id} x="0" y="0" width="190" height="95"
+          patternUnits="userSpaceOnUse" patternTransform="rotate(-28)">
+          <text x="8" y="26"
+            fontFamily="'Cormorant Garamond',serif"
+            fontSize="11" fontWeight="400" letterSpacing="4"
+            fill="rgba(255,255,255,0.22)">
+            DANA DAHDAL
+          </text>
+        </pattern>
+      </defs>
+      <rect width="100%" height="100%" fill={`url(#${id})`} />
+    </svg>
+  );
+}
+
+/* ══════════════════════════════════
    MURAL MODAL
+   ✦ zoom fix: capture:true + stopImmediatePropagation
+   ✦ lenis stop/start
+   ✦ watermark على الصورة داخل الـ lightbox
 ══════════════════════════════════ */
 function MuralModal({ items, index, onClose, onChange }: {
   items: MuralItem[]; index: number;
   onClose: () => void; onChange: (i: number) => void;
 }) {
   const { langT } = useSite();
-  const t = translations[langT];
+  const t    = translations[langT];
   const isAr = langT === "ar";
 
-  const [zoom, setZoom]     = useState(1);
-  const [pan,  setPan]      = useState({ x: 0, y: 0 });
-  const [drag, setDrag]     = useState(false);
+  useEffect(() => {
+    document.dispatchEvent(new CustomEvent("lenis:stop"));
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.dispatchEvent(new CustomEvent("lenis:start"));
+      document.body.style.overflow = "";
+    };
+  }, []);
+
+  const [zoom, setZoom] = useState(1);
+  const [pan,  setPan]  = useState({ x: 0, y: 0 });
+  const [drag, setDrag] = useState(false);
   const dragRef    = useRef({ sx: 0, sy: 0, px: 0, py: 0 });
   const imgAreaRef = useRef<HTMLDivElement>(null);
   const prevIdx    = useRef(index);
-  const [dir, setDir]       = useState(0);
+  const [dir, setDir] = useState(0);
 
   useEffect(() => {
     setDir(index > prevIdx.current ? 1 : -1);
@@ -52,10 +95,12 @@ function MuralModal({ items, index, onClose, onChange }: {
     if (!el) return;
     const h = (e: WheelEvent) => {
       e.preventDefault();
-      setZoom(z => Math.min(5, Math.max(1, z - e.deltaY * 0.002)));
+      e.stopImmediatePropagation();
+      const delta = e.deltaY < 0 ? 0.2 : -0.2;
+      setZoom(z => parseFloat(Math.min(5, Math.max(1, z + delta)).toFixed(1)));
     };
-    el.addEventListener("wheel", h, { passive: false });
-    return () => el.removeEventListener("wheel", h);
+    el.addEventListener("wheel", h, { passive: false, capture: true });
+    return () => el.removeEventListener("wheel", h, { capture: true } as EventListenerOptions);
   }, []);
 
   const onMD = (e: React.MouseEvent) => {
@@ -80,10 +125,14 @@ function MuralModal({ items, index, onClose, onChange }: {
   };
 
   const item = items[index];
+  const displayTitle    = (isAr && item.title_ar)    ? item.title_ar    : item.title;
+  const displayMedium   = (isAr && item.medium_ar)   ? item.medium_ar   : item.medium;
+  const displayLocation = (isAr && item.location_ar) ? item.location_ar : item.location;
+
   const sv = {
-    enter:  (d: number) => ({ opacity: 0, x: d > 0 ? 60 : -60 }),
+    enter:  (d: number) => ({ opacity: 0, x: d > 0 ? 80 : -80 }),
     center: { opacity: 1, x: 0 },
-    exit:   (d: number) => ({ opacity: 0, x: d > 0 ? -60 : 60 }),
+    exit:   (d: number) => ({ opacity: 0, x: d > 0 ? -80 : 80 }),
   };
 
   return (
@@ -91,50 +140,62 @@ function MuralModal({ items, index, onClose, onChange }: {
       initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
       transition={{ duration: 0.25 }}>
 
-      <div className="flex items-center justify-between px-4 sm:px-6 py-3
-                      border-b border-white/10 flex-shrink-0 bg-[#0a0a0a]">
+      {/* Top Bar */}
+      <div className="flex items-center justify-between px-4 sm:px-6 py-3 border-b border-white/10 flex-shrink-0 bg-[#0a0a0a]">
         <div className="flex items-center gap-3">
           <span className="text-[#b8955a] text-xs tracking-[0.4em] uppercase font-semibold">
             {index + 1} / {items.length}
           </span>
           <div className="flex items-center gap-1 border-l border-white/10 pl-3">
-            <button onClick={() => setZoom(z => Math.max(1, z - 0.5))} disabled={zoom <= 1}
-              className="w-8 h-8 flex items-center justify-center border border-white/20 text-white/60 hover:border-[#b8955a] hover:text-[#b8955a] disabled:opacity-20 transition-all text-xl">−</button>
-            <span className="text-white/40 text-xs w-12 text-center">{Math.round(zoom * 100)}%</span>
-            <button onClick={() => setZoom(z => Math.min(5, z + 0.5))} disabled={zoom >= 5}
-              className="w-8 h-8 flex items-center justify-center border border-white/20 text-white/60 hover:border-[#b8955a] hover:text-[#b8955a] disabled:opacity-20 transition-all text-xl">+</button>
+            <button onClick={() => setZoom(z => Math.max(1, parseFloat((z - 0.5).toFixed(1))))} disabled={zoom <= 1}
+              className="w-8 h-8 flex items-center justify-center border border-white/20 text-white/60 hover:border-[#b8955a] hover:text-[#b8955a] disabled:opacity-20 transition-all text-xl select-none">−</button>
+            <span className="text-white/50 text-xs w-14 text-center select-none">{Math.round(zoom * 100)}%</span>
+            <button onClick={() => setZoom(z => Math.min(5, parseFloat((z + 0.5).toFixed(1))))} disabled={zoom >= 5}
+              className="w-8 h-8 flex items-center justify-center border border-white/20 text-white/60 hover:border-[#b8955a] hover:text-[#b8955a] disabled:opacity-20 transition-all text-xl select-none">+</button>
             {zoom > 1 && (
               <button onClick={() => { setZoom(1); setPan({ x: 0, y: 0 }); }}
-                className="ml-1 px-2 py-1 text-[9px] tracking-widest uppercase text-white/30 hover:text-[#b8955a] border border-white/10 hover:border-[#b8955a] transition-all">reset</button>
+                className="ml-1 px-2 py-1 text-[9px] tracking-widest uppercase text-white/30 hover:text-[#b8955a] border border-white/10 hover:border-[#b8955a] transition-all">
+                reset
+              </button>
             )}
           </div>
-          {zoom === 1 && <span className="hidden sm:block text-[9px] tracking-[0.3em] text-white/20 uppercase">{t.scrollZoom}</span>}
+          {zoom === 1 && (
+            <span className="hidden sm:block text-[9px] tracking-[0.3em] text-white/20 uppercase">{t.scrollZoom}</span>
+          )}
         </div>
         <button onClick={onClose}
           className="w-9 h-9 flex items-center justify-center border border-white/20 text-white/60 hover:text-white hover:border-[#b8955a] transition-all text-xl">✕</button>
       </div>
 
+      {/* Split */}
       <div className={`flex-1 flex overflow-hidden flex-col sm:flex-row ${isAr ? "sm:flex-row-reverse" : ""}`}>
+
+        {/* Image area */}
         <div ref={imgAreaRef}
           className="flex-1 relative overflow-hidden bg-[#050505] flex items-center justify-center"
           style={{ minHeight: "50vh", cursor: zoom > 1 ? (drag ? "grabbing" : "grab") : "default" }}
           onMouseDown={onMD} onMouseMove={onMM}
           onMouseUp={() => setDrag(false)} onMouseLeave={() => setDrag(false)}
-          onTouchStart={onTS} onTouchEnd={onTE}>
+          onTouchStart={onTS} onTouchEnd={onTE}
+          onContextMenu={e => e.preventDefault()}>
 
           <AnimatePresence custom={dir} mode="wait">
-            <motion.div key={index} custom={dir} variants={sv} initial="enter" animate="center" exit="exit"
+            <motion.div key={index}
+              custom={dir} variants={sv} initial="enter" animate="center" exit="exit"
               transition={{ duration: 0.35, ease: [0.25, 0.46, 0.45, 0.94] }}
               style={{
                 transform: `scale(${zoom}) translate(${pan.x / zoom}px, ${pan.y / zoom}px)`,
                 transition: drag ? "none" : "transform 0.15s ease-out",
                 transformOrigin: "center center",
                 display: "flex", alignItems: "center", justifyContent: "center",
-                maxWidth: "100%", maxHeight: "100%",
+                maxWidth: "100%", maxHeight: "100%", position: "relative",
               }}>
-              <img src={item.src} alt={item.title}
-                style={{ maxWidth: "100%", maxHeight: "85vh", objectFit: "contain", userSelect: "none", pointerEvents: "none", display: "block" }}
+              <img src={item.src} alt={displayTitle}
+                style={{ maxWidth: "100%", maxHeight: "85vh", objectFit: "contain",
+                         userSelect: "none", pointerEvents: "none", display: "block" }}
                 draggable={false} />
+              {/* ✦ watermark على صورة الـ lightbox */}
+              <WatermarkOverlay />
             </motion.div>
           </AnimatePresence>
 
@@ -154,6 +215,7 @@ function MuralModal({ items, index, onClose, onChange }: {
           </div>
         </div>
 
+        {/* Details Panel */}
         <div className={`w-full sm:w-[320px] md:w-[380px] flex-shrink-0 bg-[#0d0d0d]
                          ${isAr ? "sm:border-r" : "sm:border-l"} border-white/10
                          border-t sm:border-t-0 flex flex-col justify-center
@@ -167,31 +229,39 @@ function MuralModal({ items, index, onClose, onChange }: {
                 {index + 1} / {items.length}
               </p>
               <h2 className="text-white text-lg sm:text-2xl font-semibold tracking-[0.1em] uppercase leading-snug mb-5">
-                {item.title}
+                {displayTitle}
               </h2>
               <div className="w-10 h-[1px] bg-[#b8955a] mb-6" />
               <div className="space-y-4">
-                {item.location && (
+                {displayLocation && (
                   <div>
-                    <p className="text-[9px] tracking-[0.45em] text-neutral-500 uppercase mb-1 font-semibold">{isAr ? "الموقع" : "Location"}</p>
-                    <p className="text-[#f0cc8a] text-sm leading-relaxed">{item.location}</p>
+                    <p className="text-[9px] tracking-[0.45em] text-neutral-500 uppercase mb-1 font-semibold">
+                      {isAr ? "الموقع" : "Location"}
+                    </p>
+                    <p className="text-[#f0cc8a] text-sm leading-relaxed">{displayLocation}</p>
                   </div>
                 )}
-                {item.medium && (
+                {displayMedium && (
                   <div>
-                    <p className="text-[9px] tracking-[0.45em] text-neutral-500 uppercase mb-1 font-semibold">{isAr ? "الخامة" : "Medium"}</p>
-                    <p className="text-neutral-200 text-sm italic">{item.medium}</p>
+                    <p className="text-[9px] tracking-[0.45em] text-neutral-500 uppercase mb-1 font-semibold">
+                      {isAr ? "الخامة" : "Medium"}
+                    </p>
+                    <p className="text-neutral-200 text-sm italic">{displayMedium}</p>
                   </div>
                 )}
                 {item.size && (
                   <div>
-                    <p className="text-[9px] tracking-[0.45em] text-neutral-500 uppercase mb-1 font-semibold">{isAr ? "المساحة" : "Scale"}</p>
+                    <p className="text-[9px] tracking-[0.45em] text-neutral-500 uppercase mb-1 font-semibold">
+                      {isAr ? "المساحة" : "Scale"}
+                    </p>
                     <p className="text-[#b8955a] text-sm font-semibold tracking-wider">{item.size}</p>
                   </div>
                 )}
                 {item.year && (
                   <div>
-                    <p className="text-[9px] tracking-[0.45em] text-neutral-500 uppercase mb-1 font-semibold">{isAr ? "السنة" : "Year"}</p>
+                    <p className="text-[9px] tracking-[0.45em] text-neutral-500 uppercase mb-1 font-semibold">
+                      {isAr ? "السنة" : "Year"}
+                    </p>
                     <p className="text-neutral-200 text-sm tracking-widest">{item.year}</p>
                   </div>
                 )}
@@ -206,6 +276,10 @@ function MuralModal({ items, index, onClose, onChange }: {
                   {t.next} ›
                 </button>
               </div>
+              <a href="/#contact"
+                className="block mt-4 py-3 text-center border border-[#b8955a] text-[#b8955a] text-[9px] tracking-[0.45em] uppercase font-semibold hover:bg-[#b8955a] hover:text-black transition-all duration-300">
+                {isAr ? "طلب عمل مماثل ←" : "COMMISSION SIMILAR WORK →"}
+              </a>
             </motion.div>
           </AnimatePresence>
         </div>
@@ -214,14 +288,11 @@ function MuralModal({ items, index, onClose, onChange }: {
   );
 }
 
-/* ══════════════════════════════════
-   MURALS PAGE
-══════════════════════════════════ */
 const PER_PAGE = 8;
 
 export default function MuralsPage() {
   const { langT } = useSite();
-  const t = translations[langT];
+  const t    = translations[langT];
   const isAr = langT === "ar";
 
   const [items,   setItems]   = useState<MuralItem[]>([]);
@@ -230,15 +301,9 @@ export default function MuralsPage() {
   const [lbIdx,   setLbIdx]   = useState<number | null>(null);
 
   useEffect(() => {
-    supabase
-      .from("images")
-      .select("*")
-      .eq("section", "murals")
+    supabase.from("images").select("*").eq("section", "murals")
       .order("created_at", { ascending: true })
-      .then(({ data }) => {
-        setItems(data ?? []);
-        setLoading(false);
-      });
+      .then(({ data }) => { setItems(data ?? []); setLoading(false); });
   }, []);
 
   const totalPages = Math.ceil(items.length / PER_PAGE);
@@ -253,13 +318,18 @@ export default function MuralsPage() {
     <>
       <AnimatePresence>
         {lbIdx !== null && (
-          <MuralModal items={items} index={lbIdx}
-            onClose={() => setLbIdx(null)} onChange={i => setLbIdx(i)} />
+          <MuralModal
+            items={items}
+            index={lbIdx}
+            onClose={() => setLbIdx(null)}
+            onChange={i => setLbIdx(i)}
+          />
         )}
       </AnimatePresence>
 
       <main className={`min-h-screen bg-[#0a0a0a] text-white pt-20 sm:pt-28 pb-20 ${isAr ? "font-cairo" : "font-cormorant"}`}>
 
+        {/* Back */}
         <div className="px-4 sm:px-8 md:px-16 mb-8 sm:mb-14">
           <button onClick={handleBack}
             className="inline-flex items-center gap-3 text-neutral-500 hover:text-[#b8955a] text-sm tracking-[0.4em] uppercase transition-colors duration-300 font-semibold">
@@ -267,17 +337,21 @@ export default function MuralsPage() {
           </button>
         </div>
 
+        {/* Header */}
         <div className="text-center px-4 mb-12 sm:mb-20">
           <motion.div initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 1 }}>
             <p className="text-xs tracking-[0.5em] text-neutral-500 uppercase mb-5 font-semibold">— Sacred Spaces —</p>
             <h1 className="font-semibold tracking-[0.4em] sm:tracking-[0.5em] uppercase italic text-3xl sm:text-4xl md:text-5xl">
               {t.muralsLabel}
             </h1>
-            <p className="text-[#b8955a] text-sm sm:text-base tracking-[0.4em] uppercase font-semibold mt-3">{t.andDomes}</p>
+            <p className="text-[#b8955a] text-sm sm:text-base tracking-[0.4em] uppercase font-semibold mt-3">
+              {t.andDomes}
+            </p>
             <div className="w-8 h-[1px] bg-[#b8955a] mx-auto mt-6 sm:mt-8" />
           </motion.div>
         </div>
 
+        {/* Grid */}
         <div className="px-4 sm:px-8 md:px-16 lg:px-20">
           {loading ? (
             <div className="flex justify-center py-32">
@@ -285,49 +359,46 @@ export default function MuralsPage() {
             </div>
           ) : (
             <>
-              <motion.div key={page}
+              <motion.div
+                key={page}
                 initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.45 }}
                 className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6 md:gap-8">
-                {pageItems.map((m, i) => (
-                  <motion.div key={m.id}
-                    initial={{ opacity: 0, y: 40 }} whileInView={{ opacity: 1, y: 0 }}
-                    viewport={{ once: true, margin: "-30px" }}
-                    transition={{ duration: 0.7, delay: i * 0.06, ease: "easeOut" }}
-                    className="group cursor-pointer"
-                    onClick={() => setLbIdx((page - 1) * PER_PAGE + i)}>
+                {pageItems.map((m, i) => {
+                  const globalIdx = (page - 1) * PER_PAGE + i;
+                  const mTitle    = (isAr && m.title_ar) ? m.title_ar : m.title;
+                  return (
+                    <motion.div
+                      key={m.id}
+                      initial={{ opacity: 0, y: 40 }} whileInView={{ opacity: 1, y: 0 }}
+                      viewport={{ once: true, margin: "-30px" }}
+                      transition={{ duration: 0.7, delay: i * 0.06, ease: "easeOut" }}
+                      className="group cursor-pointer"
+                      onClick={() => setLbIdx(globalIdx)}>
 
-                    <div className="relative overflow-hidden bg-neutral-900" style={{ paddingBottom: "125%" }}>
-                      <img src={m.src} alt={m.title}
-                        className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-700" />
-                      <div className="absolute inset-0 bg-black/40 group-hover:bg-black/20 transition-colors duration-500" />
-                      <div className="absolute bottom-0 left-0 right-0 p-4 sm:p-5 translate-y-full group-hover:translate-y-0 transition-transform duration-400">
-                        <p className="text-white text-xs sm:text-sm tracking-[0.3em] uppercase font-semibold">{m.title}</p>
-                        <p className="text-[#f0cc8a] text-[10px] sm:text-xs tracking-[0.22em] mt-1">{m.location}</p>
+                      {/* ✦ صورة نظيفة — بدون أي overlay أو تفاصيل */}
+                      <div className="relative overflow-hidden bg-neutral-900"
+                        style={{ paddingBottom: "125%" }}
+                        onContextMenu={e => e.preventDefault()}>
+                        <img src={m.src} alt={mTitle}
+                          className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-700"
+                          style={{ pointerEvents: "none" }}
+                          draggable={false} />
+                        {/* ✦ watermark على كل صورة في الـ grid */}
+                        <WatermarkOverlay />
                       </div>
-                      {m.size && (
-                        <div className="absolute top-3 right-3 bg-black/75 text-[#b8955a] text-xs tracking-[0.3em] uppercase px-2.5 py-1 font-semibold">
-                          {m.size}
-                        </div>
-                      )}
-                      <div className="absolute top-3 left-3 w-8 h-8 bg-black/60 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-300">
-                        <svg viewBox="0 0 24 24" className="w-4 h-4 stroke-white fill-none" strokeWidth="2">
-                          <circle cx="11" cy="11" r="7"/><path d="m21 21-3.5-3.5M8 11h6M11 8v6"/>
-                        </svg>
-                      </div>
-                    </div>
 
-                    <div className="mt-3 pb-4 border-b border-neutral-800">
-                      <h4 className="text-xs sm:text-sm tracking-[0.25em] uppercase font-semibold text-neutral-200 leading-relaxed">{m.title}</h4>
-                      <p className="text-[10px] sm:text-xs text-neutral-500 italic mt-1">{m.medium}</p>
-                      <div className="flex items-center gap-3 mt-2 text-[10px] tracking-widest text-neutral-600 uppercase">
-                        <span>{m.year}</span>
-                        {m.size && <><span>·</span><span className="text-[#b8955a]/70 font-semibold">{m.size}</span></>}
+                      {/* ✦ الاسم فقط تحت الصورة */}
+                      <div className={`mt-3 pb-3 border-b border-neutral-800 ${isAr ? "text-right" : ""}`}>
+                        <h4 className="text-[10px] sm:text-xs tracking-[0.25em] uppercase font-semibold text-neutral-200 truncate">
+                          {mTitle}
+                        </h4>
                       </div>
-                    </div>
-                  </motion.div>
-                ))}
+                    </motion.div>
+                  );
+                })}
               </motion.div>
 
+              {/* Pagination */}
               {totalPages > 1 && (
                 <div className="flex justify-center items-center gap-2 mt-12 sm:mt-16">
                   <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}

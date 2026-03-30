@@ -1,118 +1,143 @@
-/* app/lib/translations.ts */
+// app/lib/translations.ts
 
-export const translations = {
+export type Lang = "en" | "ar";
+
+interface T {
+  // 🔥 Navbar
+  navGallery: string;
+  navMurals: string;
+  navExhibitions: string;
+  navAbout: string;
+  navContact: string;
+
+  // Lightbox / Gallery
+  scrollZoom: string;
+  prev: string;
+  next: string;
+  tabs: [string, string, string];
+  selectedWorks: string;
+  gallery: string;
+  various: string;
+
+  // Murals
+  muralsLabel: string;
+  andDomes: string;
+  exploreMurals: string;
+
+  // Hero
+  sacredArt: string;
+  role: string;
+
+  // About
+  philosophy: string;
+  beyondVisible: string;
+  bio1: string;
+  bio2: string;
+  quote: string;
+  handCaption: string;
+
+  // Contact
+  commissionWork: string;
+  contact: string;
+  name: string;
+  email: string;
+  subject: string;
+  message: string;
+  yourName: string;
+  emailAddress: string;
+  yourMessage: string;
+  sendMessage: string;
+
+  // Footer
+  copyright: string;
+}
+
+export const translations: Record<Lang, T> = {
   en: {
-    // Hero
-    role:         "Byzantine Iconographer",
-    sacredArt:    "Sacred Art Since 2008",
-    heroName:     "Dana Fawaz",
-    heroSurname:  "Dahdal",
+    // 🔥 Navbar
+    navGallery: "Works",
+    navMurals: "Murals",
+    navExhibitions: "Exhibitions & Various",
+    navAbout: "About",
+    navContact: "Contact",
 
-    // Nav
-    navGallery:     "Gallery",
-    navMurals:      "Murals",
-    navExhibitions: "Exhibitions",
-    navAbout:       "About",
-    navContact:     "Contact",
-
-    // Gallery
+    scrollZoom: "Scroll to zoom",
+    prev: "Prev",
+    next: "Next",
+    tabs: ["Sacred Icons", "Gold Gilding", "Mosaics"],
     selectedWorks: "Selected Works",
-    gallery:       "Gallery",
-    tabs: ["Icons", "Gilding & Engraving", "Mosaic"] as [string, string, string],
+    gallery: "Gallery",
+    various: "Exhibitions & Various",
 
-    // Murals
-    muralsLabel:   "Murals",
-    andDomes:      "& Domes",
-    exploreMurals: "Explore All Murals",
+    muralsLabel: "Murals",
+    andDomes: "& Church Domes",
+    exploreMurals: "Explore Murals",
 
-    // Exhibitions
-    various: "Exhibitions",
+    sacredArt: "Sacred Art Since 2008",
+    role: "Byzantine Iconographer · Damascus · Beirut",
 
-    // About
-    philosophy:    "Philosophy",
-    beyondVisible: "Beyond the Visible World",
-    bio1:          "Dana Fawaz Dahdal is a master of Byzantine iconography, a sacred art form where every line is a prayer and every color a theological statement.",
-    quote:         '"My work is not about creating art; it is about revealing the light that has existed for centuries within the sacred canons."',
-    bio2:          "Specializing in egg tempera and 24K gold leaf, her icons adorn cathedrals and private collections across the Middle East and Europe, preserving a tradition that spans over two millennia.",
-    handCaption:   "The hand that traces the divine",
+    philosophy: "Philosophy",
+    beyondVisible: "Beyond the Visible",
+    bio1: "Dana Fawaz Dahdal is a Byzantine iconographer whose practice is rooted in the living tradition of Eastern Christian sacred art.",
+    bio2: "Working from her studio, Dana creates commissions for churches and collectors across the Middle East and Europe.",
+    quote: "The icon is not a portrait of the past — it is a window into the eternal present.",
+    handCaption: "Dana Fawaz Dahdal — at work",
 
-    // Contact
-    commissionWork: "Commission a Work",
-    contact:        "Contact",
-    name:           "Name",
-    email:          "Email",
-    yourName:       "Your Name",
-    emailAddress:   "Email Address",
-    subject:        "Subject",
-    message:        "Message",
-    yourMessage:    "Your Message",
-    sendMessage:    "Send Message",
+    commissionWork: "Commission Work",
+    contact: "Contact",
+    name: "Name",
+    email: "Email",
+    subject: "Subject",
+    message: "Message",
+    yourName: "Your full name",
+    emailAddress: "your@email.com",
+    yourMessage: "Tell me about the commission or inquiry...",
+    sendMessage: "Send Message",
 
-    // Lightbox
-    scrollZoom: "Scroll to zoom · Drag to pan",
-    prev:       "Prev",
-    next:       "Next",
-
-    // Footer
-    copyright: "© 2024 Dana Fawaz Dahdal",
+    copyright: "© 2025 Dana Fawaz Dahdal — All Rights Reserved",
   },
 
   ar: {
-    // Hero
-    role:         "رسامة أيقونات بيزنطية",
-    sacredArt:    "فن مقدس منذ 2008",
-    heroName:     "دانا فواز",
-    heroSurname:  "دحدل",
+    // 🔥 Navbar
+    navGallery: "الأعمال",
+    navMurals: "الجداريات",
+    navExhibitions: "معارض وأعمال متنوعة",
+    navAbout: "عن الفنان",
+    navContact: "تواصل",
 
-    // Nav
-    navGallery:     "المعرض",
-    navMurals:      "الجداريات",
-    navExhibitions: "معارض",
-    navAbout:       "عن الفنانة",
-    navContact:     "تواصل",
-
-    // Gallery
+    scrollZoom: "مرر للتكبير",
+    prev: "السابق",
+    next: "التالي",
+    tabs: ["الأيقونات المقدسة", "التذهيب", "الفسيفساء"],
     selectedWorks: "أعمال مختارة",
-    gallery:       "المعرض",
-    tabs: ["ايقونات", "تذهيب ونقش", "فسيفساء"] as [string, string, string],
+    gallery: "المعرض",
+    various: "معارض وأعمال متنوعة",
 
-    // Murals
-    muralsLabel:   "الجداريات",
-    andDomes:      "والقباب",
-    exploreMurals: "استعرض كل الجداريات",
+    muralsLabel: "الجداريات",
+    andDomes: "والقباب الكنسية",
+    exploreMurals: "استكشف الجداريات",
 
-    // Exhibitions
-    various: "معارض",
+    sacredArt: "فن مقدس منذ ٢٠٠٨",
+    role: "رسامة أيقونات بيزنطية · دمشق · بيروت",
 
-    // About
-    philosophy:    "الفلسفة",
-    beyondVisible: "ما وراء العالم المرئي",
-    bio1:          "دانا فواز دحدل فنانة متمكنة في فن الأيقونات البيزنطية، وهو فن مقدس تكون فيه كل خط صلاة وكل لون بياناً لاهوتياً.",
-    quote:         '"عملي ليس إنشاء فن؛ بل هو الكشف عن النور الذي عاش لقرون داخل القوانين المقدسة."',
-    bio2:          "متخصصة في تمبيرا البيض وورق الذهب عيار 24 قيراطاً، تزين أيقوناتها الكاتدرائيات والمجموعات الخاصة في الشرق الأوسط وأوروبا، محافظةً على تقليد يمتد لأكثر من ألفي عام.",
-    handCaption:   "اليد التي ترسم المقدس",
+    philosophy: "الفلسفة الفنية",
+    beyondVisible: "ما وراء المرئي",
+    bio1: "دانا فواز دحدل رسامة أيقونات بيزنطية.",
+    bio2: "تنجز أعمالاً للكنائس والأديرة والمقتنين.",
+    quote: "الأيقونة ليست صورة للماضي — بل نافذة على الحاضر الأبدي.",
+    handCaption: "دانا فواز دحدل — في المرسم",
 
-    // Contact
-    commissionWork: "اطلب عملاً فنياً",
-    contact:        "تواصل",
-    name:           "الاسم",
-    email:          "البريد",
-    yourName:       "اسمك",
-    emailAddress:   "البريد الإلكتروني",
-    subject:        "الموضوع",
-    message:        "الرسالة",
-    yourMessage:    "رسالتك",
-    sendMessage:    "إرسال الرسالة",
+    commissionWork: "طلب عمل",
+    contact: "تواصل",
+    name: "الاسم",
+    email: "البريد الإلكتروني",
+    subject: "الموضوع",
+    message: "الرسالة",
+    yourName: "اسمك الكامل",
+    emailAddress: "بريدك@الإلكتروني.com",
+    yourMessage: "أخبريني عن طلبك أو استفسارك...",
+    sendMessage: "إرسال الرسالة",
 
-    // Lightbox
-    scrollZoom: "السكرول للتكبير · اسحب للتحريك",
-    prev:       "السابق",
-    next:       "التالي",
-
-    // Footer
-    copyright: "© 2024 دانا فواز دحدل",
+    copyright: "© ٢٠٢٥ دانا فواز دحدل — جميع الحقوق محفوظة",
   },
-} as const;
-
-export type LangT  = keyof typeof translations;
-export type Trans  = typeof translations.en;
+};

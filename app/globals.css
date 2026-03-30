@@ -1,10 +1,8 @@
 /* app/globals.css */
 @import "tailwindcss";
 
-/* ── Tailwind v4 dark mode ── */
 @variant dark (&:where(.dark, .dark *));
 
-/* ── Fonts ── */
 @theme {
   --font-cormorant: var(--font-cormorant);
   --font-cairo:     var(--font-cairo);
@@ -14,7 +12,6 @@
   --background: #ffffff;
   --foreground: #171717;
 }
-
 .dark {
   --background: #0a0a0a;
   --foreground: #ededed;
@@ -30,30 +27,70 @@ body {
   transition: background-color 0.3s ease, color 0.3s ease;
 }
 
-/* ── العربي يستخدم خط Cairo ── */
 [dir="rtl"] body,
 [lang="ar"] body,
 .font-arabic {
   font-family: var(--font-cairo), "Cairo", sans-serif;
 }
 
-/* ── Murals ticker animation ──
-   اسم مختلف عن "scroll" عشان ما يتعارضش مع CSS scroll property
-── */
+/* ── Murals ticker ── */
 @keyframes ticker {
   0%   { transform: translateX(0); }
   100% { transform: translateX(-33.333%); }
 }
-
 .murals-ticker {
   animation: ticker 50s linear infinite;
   will-change: transform;
 }
+.murals-ticker:hover { animation-play-state: paused; }
 
-.murals-ticker:hover {
-  animation-play-state: paused;
-}
-
-/* ── Utility classes ── */
 .font-cormorant { font-family: var(--font-cormorant), "Cormorant Garamond", serif; }
 .font-cairo     { font-family: var(--font-cairo), "Cairo", sans-serif; }
+
+/* ══════════════════════════════════
+   WATERMARK — على كل صورة في الموقع
+══════════════════════════════════ */
+.art-img-wrap {
+  position: relative;
+  overflow: hidden;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* الـ watermark نفسه */
+.art-img-wrap::after {
+  content: "DANA DAHDAL";
+  position: absolute;
+  bottom: 10px;
+  right: 10px;
+  font-family: var(--font-cormorant), "Cormorant Garamond", serif;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.35em;
+  color: rgba(255, 255, 255, 0.55);
+  text-shadow: 0 1px 3px rgba(0,0,0,0.7);
+  pointer-events: none;
+  z-index: 10;
+  text-transform: uppercase;
+}
+
+/* منع right-click وdrag على الصور */
+.art-img-wrap img,
+.art-img-wrap video {
+  -webkit-user-drag: none;
+  user-drag: none;
+  pointer-events: none;
+}
+
+/* ── منع right-click على الصور في كل الموقع ── */
+img {
+  -webkit-user-drag: none;
+  user-drag: none;
+}
+
+/* ── Gold Cursor — desktop only ── */
+@media (hover: hover) and (pointer: fine) {
+  html, * {
+    cursor: none !important;
+  }
+}

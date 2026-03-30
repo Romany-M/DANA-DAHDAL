@@ -2,8 +2,10 @@
 import "./globals.css";
 import Navbar from "./components/Navbar";
 import LenisProvider from "./components/LenisProvider";
+import ImageProtection from "./components/ImageProtection";
 import { SiteProvider } from "./context/SiteContext";
 import { Cormorant_Garamond, Cairo } from "next/font/google";
+import GoldCursor from "./components/GoldCursor";
 
 const cormorant = Cormorant_Garamond({
   subsets: ["latin"],
@@ -21,8 +23,8 @@ const cairo = Cairo({
 });
 
 export const metadata = {
-  title: "Dana Fawaz Dahdal",
-  description: "Byzantine Iconographer",
+  title: "Dana Fawaz Dahdal — Byzantine Iconographer",
+  description: "Byzantine Iconographer — Sacred Art Since 2008",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -31,6 +33,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body className={`${cormorant.variable} ${cairo.variable} font-cormorant`}>
         <SiteProvider>
           <LenisProvider>
+             <GoldCursor />
+            <ImageProtection />
             <Navbar />
             {children}
           </LenisProvider>
