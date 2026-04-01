@@ -123,11 +123,14 @@ function Lightbox({ items, index, onClose, onChange }: {
   const t    = translations[langT];
   const isAr = langT === "ar";
 
+  /* ✦ أوقف Lenis + overflow */
   useEffect(() => {
-    document.dispatchEvent(new CustomEvent("lenis:stop"));
+    const lenis = (window as any).__lenis;
+    if (lenis) lenis.stop();
     document.body.style.overflow = "hidden";
     return () => {
-      document.dispatchEvent(new CustomEvent("lenis:start"));
+      const lenis = (window as any).__lenis;
+      if (lenis) lenis.start();
       document.body.style.overflow = "";
     };
   }, []);
@@ -139,6 +142,7 @@ function Lightbox({ items, index, onClose, onChange }: {
   const imgAreaRef = useRef<HTMLDivElement>(null);
   const prevIdx    = useRef(index);
   const [dir, setDir] = useState(0);
+  const pinchRef   = useRef<{ dist: number; z: number } | null>(null);
 
   useEffect(() => {
     setDir(index > prevIdx.current ? 1 : -1);
@@ -158,17 +162,18 @@ function Lightbox({ items, index, onClose, onChange }: {
     return () => window.removeEventListener("keydown", fn);
   }, [index, items.length, onClose, onChange]);
 
+  /* ✦ WHEEL ZOOM — intercept before Lenis */
   useEffect(() => {
     const el = imgAreaRef.current;
     if (!el) return;
-    const h = (e: WheelEvent) => {
+    const onWheel = (e: WheelEvent) => {
       e.preventDefault();
       e.stopImmediatePropagation();
-      const delta = e.deltaY < 0 ? 0.2 : -0.2;
-      setZoom(z => parseFloat(Math.min(5, Math.max(1, z + delta)).toFixed(1)));
+      setZoom(z => parseFloat(Math.min(5, Math.max(1, z + (e.deltaY < 0 ? 0.2 : -0.2))).toFixed(1)));
     };
-    el.addEventListener("wheel", h, { passive: false, capture: true });
-    return () => el.removeEventListener("wheel", h, { capture: true } as EventListenerOptions);
+    /* capture:true → يشتغل قبل Lenis في الـ bubble phase */
+    el.addEventListener("wheel", onWheel, { passive: false, capture: true });
+    return () => el.removeEventListener("wheel", onWheel, { passive: false, capture: true } as EventListenerOptions);
   }, []);
 
   const onMD = (e: React.MouseEvent) => {
@@ -182,8 +187,26 @@ function Lightbox({ items, index, onClose, onChange }: {
               y: dragRef.current.py + e.clientY - dragRef.current.sy });
   };
   const tx = useRef(0);
-  const onTS = (e: React.TouchEvent) => { tx.current = e.touches[0].clientX; };
+  const onTS = (e: React.TouchEvent) => {
+    if (e.touches.length === 2) {
+      const dx = e.touches[0].clientX - e.touches[1].clientX;
+      const dy = e.touches[0].clientY - e.touches[1].clientY;
+      pinchRef.current = { dist: Math.hypot(dx, dy), z: zoom };
+    } else {
+      tx.current = e.touches[0].clientX;
+    }
+  };
+  const onTM = (e: React.TouchEvent) => {
+    if (e.touches.length === 2 && pinchRef.current) {
+      e.preventDefault();
+      const dx    = e.touches[0].clientX - e.touches[1].clientX;
+      const dy    = e.touches[0].clientY - e.touches[1].clientY;
+      const scale = Math.hypot(dx, dy) / pinchRef.current.dist;
+      setZoom(parseFloat(Math.min(5, Math.max(1, pinchRef.current.z * scale)).toFixed(2)));
+    }
+  };
   const onTE = (e: React.TouchEvent) => {
+    pinchRef.current = null;
     if (zoom > 1) return;
     const dx = e.changedTouches[0].clientX - tx.current;
     if (Math.abs(dx) > 50) {
@@ -236,7 +259,7 @@ function Lightbox({ items, index, onClose, onChange }: {
           style={{ minHeight: "50vh", cursor: zoom>1 ? (drag?"grabbing":"grab") : "default" }}
           onMouseDown={onMD} onMouseMove={onMM}
           onMouseUp={() => setDrag(false)} onMouseLeave={() => setDrag(false)}
-          onTouchStart={onTS} onTouchEnd={onTE}
+          onTouchStart={onTS} onTouchMove={onTM} onTouchEnd={onTE}
           onContextMenu={e => e.preventDefault()}>
           <AnimatePresence custom={dir} mode="wait">
             <motion.div key={index} custom={dir} variants={sv} initial="enter" animate="center" exit="exit"
@@ -245,8 +268,8 @@ function Lightbox({ items, index, onClose, onChange }: {
                        transition: drag?"none":"transform 0.15s ease-out",
                        transformOrigin:"center center", maxWidth:"100%", maxHeight:"100%",
                        position:"relative", display:"flex" }}>
-              {/* ✦ wrapper relative عشان الـ watermark SVG تشتغل صح */}
-              <div style={{ position:"relative", display:"inline-flex" }}>
+              {/* wrapper relative — الـ watermark محصورة هنا بس */}
+              <div style={{ position:"relative", display:"inline-flex", overflow:"hidden" }}>
                 <img src={item.src} alt={displayTitle}
                   style={{ maxWidth:"100%", maxHeight:"85vh", objectFit:"contain",
                            userSelect:"none", pointerEvents:"none", display:"block" }}
@@ -381,8 +404,8 @@ function ArtCard({ item, delay = 0, onClick }: {
       </ArtImgWrap>
 
       {/* الاسم فقط تحت */}
-      <div className={`mt-3 pb-3 border-b border-neutral-200 dark:border-neutral-800 ${isAr?"text-right":""}`}>
-        <h4 className="text-[10px] sm:text-xs tracking-[0.22em] uppercase font-semibold truncate">
+      <div className={`mt-2 pb-2 border-b border-neutral-200 dark:border-neutral-800 ${isAr?"text-right":""}`}>
+        <h4 className="text-[9px] sm:text-[10px] tracking-[0.15em] sm:tracking-[0.22em] uppercase font-semibold truncate leading-relaxed">
           {displayTitle}
         </h4>
       </div>
@@ -581,6 +604,15 @@ export default function Home() {
 
         {/* ══ HERO ══ */}
         <section className="relative h-screen flex flex-col bg-[#080604] overflow-hidden">
+
+          {/* ✦ Mobile background image — بدل الـ hidden lg:block */}
+          <div className="lg:hidden absolute inset-0 z-0">
+            <img src="/icons/hero.png" alt=""
+              className="w-full h-full object-cover"
+              style={{ objectPosition:"center 15%", filter:"brightness(0.35) sepia(0.1)", pointerEvents:"none" }}
+              draggable={false} />
+            <div className="absolute inset-0" style={{ background:"linear-gradient(to bottom,rgba(8,6,4,0.55) 0%,rgba(8,6,4,0.3) 50%,rgba(8,6,4,0.75) 100%)" }} />
+          </div>
 
           {/* TOP BAR */}
           <div className="relative z-10 flex items-center justify-between px-6 sm:px-12 pt-7 sm:pt-9 flex-shrink-0">
