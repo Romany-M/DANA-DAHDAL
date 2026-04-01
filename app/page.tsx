@@ -123,222 +123,232 @@ function Lightbox({ items, index, onClose, onChange }: {
   const t    = translations[langT];
   const isAr = langT === "ar";
 
-  /* ✦ أوقف Lenis + overflow */
   useEffect(() => {
-    const lenis = (window as any).__lenis;
-    if (lenis) lenis.stop();
+    document.dispatchEvent(new Event("lenis:stop"));
     document.body.style.overflow = "hidden";
+
     return () => {
-      const lenis = (window as any).__lenis;
-      if (lenis) lenis.start();
+      document.dispatchEvent(new Event("lenis:start"));
       document.body.style.overflow = "";
     };
   }, []);
 
-  const [zoom, setZoom] = useState(1);
-  const [pan,  setPan]  = useState({ x: 0, y: 0 });
-  const [drag, setDrag] = useState(false);
-  const dragRef    = useRef({ sx: 0, sy: 0, px: 0, py: 0 });
-  const imgAreaRef = useRef<HTMLDivElement>(null);
-  const prevIdx    = useRef(index);
-  const [dir, setDir] = useState(0);
-  const pinchRef   = useRef<{ dist: number; z: number } | null>(null);
-
-  useEffect(() => {
-    setDir(index > prevIdx.current ? 1 : -1);
-    prevIdx.current = index;
-    setZoom(1); setPan({ x: 0, y: 0 });
-  }, [index]);
-
+  /* keyboard navigation */
   useEffect(() => {
     const fn = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
-      if (e.key === "ArrowLeft"  && index > 0)                onChange(index - 1);
       if (e.key === "ArrowRight" && index < items.length - 1) onChange(index + 1);
-      if (e.key === "+" || e.key === "=") setZoom(z => Math.min(5, z + 0.5));
-      if (e.key === "-")                  setZoom(z => Math.max(1, z - 0.5));
+      if (e.key === "ArrowLeft" && index > 0) onChange(index - 1);
     };
     window.addEventListener("keydown", fn);
     return () => window.removeEventListener("keydown", fn);
-  }, [index, items.length, onClose, onChange]);
+  }, [index, items.length]);
 
-  /* ✦ WHEEL ZOOM — intercept before Lenis */
+  const [zoom, setZoom] = useState(1);
+  const [pan, setPan]   = useState({ x: 0, y: 0 });
+  const [drag, setDrag] = useState(false);
+
+  const dragRef = useRef({ sx: 0, sy: 0, px: 0, py: 0 });
+  const imgAreaRef = useRef<HTMLDivElement>(null);
+
+  const clamp = (v: number, min: number, max: number) =>
+    Math.min(max, Math.max(min, v));
+
+  useEffect(() => {
+    if (zoom === 1) setPan({ x: 0, y: 0 });
+  }, [zoom]);
+
+  /* wheel zoom */
   useEffect(() => {
     const el = imgAreaRef.current;
     if (!el) return;
+
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
       e.stopImmediatePropagation();
-      setZoom(z => parseFloat(Math.min(5, Math.max(1, z + (e.deltaY < 0 ? 0.2 : -0.2))).toFixed(1)));
+
+      setZoom(z => {
+        const next = z + (e.deltaY < 0 ? 0.25 : -0.25);
+        return Math.min(5, Math.max(1, next));
+      });
     };
-    /* capture:true → يشتغل قبل Lenis في الـ bubble phase */
+
     el.addEventListener("wheel", onWheel, { passive: false, capture: true });
-    return () => el.removeEventListener("wheel", onWheel, { passive: false, capture: true } as EventListenerOptions);
+    return () =>
+      el.removeEventListener("wheel", onWheel, { capture: true } as any);
   }, []);
+
+  const onDoubleClick = () => {
+    if (zoom === 1) setZoom(2);
+    else {
+      setZoom(1);
+      setPan({ x: 0, y: 0 });
+    }
+  };
 
   const onMD = (e: React.MouseEvent) => {
     if (zoom <= 1) return;
-    e.preventDefault(); setDrag(true);
-    dragRef.current = { sx: e.clientX, sy: e.clientY, px: pan.x, py: pan.y };
+    setDrag(true);
+    dragRef.current = {
+      sx: e.clientX,
+      sy: e.clientY,
+      px: pan.x,
+      py: pan.y,
+    };
   };
+
   const onMM = (e: React.MouseEvent) => {
     if (!drag) return;
-    setPan({ x: dragRef.current.px + e.clientX - dragRef.current.sx,
-              y: dragRef.current.py + e.clientY - dragRef.current.sy });
-  };
-  const tx = useRef(0);
-  const onTS = (e: React.TouchEvent) => {
-    if (e.touches.length === 2) {
-      const dx = e.touches[0].clientX - e.touches[1].clientX;
-      const dy = e.touches[0].clientY - e.touches[1].clientY;
-      pinchRef.current = { dist: Math.hypot(dx, dy), z: zoom };
-    } else {
-      tx.current = e.touches[0].clientX;
-    }
-  };
-  const onTM = (e: React.TouchEvent) => {
-    if (e.touches.length === 2 && pinchRef.current) {
-      e.preventDefault();
-      const dx    = e.touches[0].clientX - e.touches[1].clientX;
-      const dy    = e.touches[0].clientY - e.touches[1].clientY;
-      const scale = Math.hypot(dx, dy) / pinchRef.current.dist;
-      setZoom(parseFloat(Math.min(5, Math.max(1, pinchRef.current.z * scale)).toFixed(2)));
-    }
-  };
-  const onTE = (e: React.TouchEvent) => {
-    pinchRef.current = null;
-    if (zoom > 1) return;
-    const dx = e.changedTouches[0].clientX - tx.current;
-    if (Math.abs(dx) > 50) {
-      if (dx < 0 && index < items.length - 1) onChange(index + 1);
-      if (dx > 0 && index > 0)                onChange(index - 1);
-    }
+
+    const newX = dragRef.current.px + e.clientX - dragRef.current.sx;
+    const newY = dragRef.current.py + e.clientY - dragRef.current.sy;
+
+    setPan({
+      x: clamp(newX, -500, 500),
+      y: clamp(newY, -500, 500),
+    });
   };
 
   const item = items[index];
-  const displayTitle    = (isAr && item.title_ar)    ? item.title_ar    : item.title;
-  const displayMedium   = (isAr && item.medium_ar)   ? item.medium_ar   : item.medium;
+  const displayTitle    = (isAr && item.title_ar) ? item.title_ar : item.title;
+  const displayMedium   = (isAr && item.medium_ar) ? item.medium_ar : item.medium;
   const displayLocation = (isAr && item.location_ar) ? item.location_ar : item.location;
 
-  const sv = {
-    enter:  (d: number) => ({ opacity: 0, x: d > 0 ? 80 : -80 }),
-    center: { opacity: 1, x: 0 },
-    exit:   (d: number) => ({ opacity: 0, x: d > 0 ? -80 : 80 }),
-  };
-
   return (
-    <motion.div className="fixed inset-0 z-[200] bg-black flex flex-col"
-      initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-      transition={{ duration: 0.25 }}>
+    <motion.div
+      className="fixed inset-0 z-[200] bg-black flex flex-col"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+    >
+      {/* HEADER */}
+      <div className="flex items-center justify-between px-6 py-4 border-b border-white/10 bg-[#0a0a0a]">
+        <span className="text-[#b8955a] text-sm tracking-widest">
+          {index + 1} / {items.length}
+        </span>
 
-      <div className="flex items-center justify-between px-4 sm:px-6 py-3 border-b border-white/10 flex-shrink-0 bg-[#0a0a0a]">
-        <div className="flex items-center gap-3">
-          <span className="text-[#b8955a] text-xs tracking-[0.4em] uppercase font-semibold">{index+1} / {items.length}</span>
-          <div className="flex items-center gap-1 border-l border-white/10 pl-3">
-            <button onClick={() => setZoom(z => Math.max(1, parseFloat((z-0.5).toFixed(1))))} disabled={zoom<=1}
-              className="w-8 h-8 flex items-center justify-center border border-white/20 text-white/60 hover:border-[#b8955a] hover:text-[#b8955a] disabled:opacity-20 transition-all text-xl select-none">−</button>
-            <span className="text-white/50 text-xs w-14 text-center select-none font-medium">{Math.round(zoom*100)}%</span>
-            <button onClick={() => setZoom(z => Math.min(5, parseFloat((z+0.5).toFixed(1))))} disabled={zoom>=5}
-              className="w-8 h-8 flex items-center justify-center border border-white/20 text-white/60 hover:border-[#b8955a] hover:text-[#b8955a] disabled:opacity-20 transition-all text-xl select-none">+</button>
-            {zoom > 1 && (
-              <button onClick={() => { setZoom(1); setPan({ x: 0, y: 0 }); }}
-                className="ml-1 px-2.5 py-1 text-[9px] tracking-widest uppercase text-white/30 hover:text-[#b8955a] border border-white/10 hover:border-[#b8955a] transition-all">
-                reset
-              </button>
-            )}
-          </div>
-          {zoom === 1 && <span className="hidden sm:block text-[9px] tracking-[0.3em] text-white/20 uppercase">{t.scrollZoom}</span>}
-        </div>
-        <button onClick={onClose}
-          className="w-9 h-9 flex items-center justify-center border border-white/20 text-white/60 hover:text-white hover:border-[#b8955a] transition-all text-xl">✕</button>
+        <button onClick={onClose} className="text-white text-2xl">✕</button>
       </div>
 
-      <div className={`flex-1 flex overflow-hidden flex-col sm:flex-row ${isAr ? "sm:flex-row-reverse" : ""}`}>
-        <div ref={imgAreaRef}
-          className="flex-1 relative overflow-hidden bg-[#050505] flex items-center justify-center"
-          style={{ minHeight: "50vh", cursor: zoom>1 ? (drag?"grabbing":"grab") : "default" }}
-          onMouseDown={onMD} onMouseMove={onMM}
-          onMouseUp={() => setDrag(false)} onMouseLeave={() => setDrag(false)}
-          onTouchStart={onTS} onTouchMove={onTM} onTouchEnd={onTE}
-          onContextMenu={e => e.preventDefault()}>
-          <AnimatePresence custom={dir} mode="wait">
-            <motion.div key={index} custom={dir} variants={sv} initial="enter" animate="center" exit="exit"
-              transition={{ duration: 0.35, ease: [0.25,0.46,0.45,0.94] }}
-              style={{ transform:`scale(${zoom}) translate(${pan.x/zoom}px,${pan.y/zoom}px)`,
-                       transition: drag?"none":"transform 0.15s ease-out",
-                       transformOrigin:"center center", maxWidth:"100%", maxHeight:"100%",
-                       position:"relative", display:"flex" }}>
-              {/* wrapper relative — الـ watermark محصورة هنا بس */}
-              <div style={{ position:"relative", display:"inline-flex", overflow:"hidden" }}>
-                <img src={item.src} alt={displayTitle}
-                  style={{ maxWidth:"100%", maxHeight:"85vh", objectFit:"contain",
-                           userSelect:"none", pointerEvents:"none", display:"block" }}
-                  draggable={false} />
-                <WatermarkOverlay />
-              </div>
-            </motion.div>
-          </AnimatePresence>
+      {/* BODY */}
+      <div className={`flex-1 flex flex-col lg:flex-row ${isAr ? "lg:flex-row-reverse" : ""}`}>
+
+        {/* IMAGE */}
+        <div
+          ref={imgAreaRef}
+          className="flex-1 relative flex items-center justify-center overflow-hidden bg-[#050505]"
+          style={{ cursor: zoom > 1 ? (drag ? "grabbing" : "grab") : "default" }}
+          onMouseDown={onMD}
+          onMouseMove={onMM}
+          onMouseUp={() => setDrag(false)}
+          onMouseLeave={() => setDrag(false)}
+          onDoubleClick={onDoubleClick}
+        >
+          <motion.div
+            style={{
+              transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+              transition: drag ? "none" : "transform 0.2s ease",
+              position: "relative",
+            }}
+          >
+            <img
+              src={item.src}
+              alt={displayTitle}
+              draggable={false}
+              style={{
+                maxWidth: "90vw",
+                maxHeight: "85vh",
+                objectFit: "contain",
+                display: "block",
+              }}
+            />
+
+            <WatermarkOverlay />
+          </motion.div>
+
+          {/* 🔥 NAV ARROWS */}
           {index > 0 && (
-            <button onClick={() => onChange(index-1)}
-              className="absolute left-3 top-1/2 -translate-y-1/2 w-11 h-11 flex items-center justify-center bg-black/60 border border-white/20 text-white/70 hover:bg-[#b8955a] hover:border-[#b8955a] hover:text-white transition-all text-2xl z-10">‹</button>
+            <button
+              onClick={() => onChange(index - 1)}
+              className="absolute left-4 top-1/2 -translate-y-1/2 text-white text-4xl bg-black/50 px-3 py-1 hover:bg-[#b8955a] transition"
+            >
+              ‹
+            </button>
           )}
-          {index < items.length-1 && (
-            <button onClick={() => onChange(index+1)}
-              className="absolute right-3 top-1/2 -translate-y-1/2 w-11 h-11 flex items-center justify-center bg-black/60 border border-white/20 text-white/70 hover:bg-[#b8955a] hover:border-[#b8955a] hover:text-white transition-all text-2xl z-10">›</button>
+
+          {index < items.length - 1 && (
+            <button
+              onClick={() => onChange(index + 1)}
+              className="absolute right-4 top-1/2 -translate-y-1/2 text-white text-4xl bg-black/50 px-3 py-1 hover:bg-[#b8955a] transition"
+            >
+              ›
+            </button>
           )}
-          <div className="absolute bottom-3 left-0 right-0 flex justify-center gap-1.5 z-10">
-            {items.map((_,i) => (
-              <button key={i} onClick={() => onChange(i)}
-                className={`transition-all duration-300 ${i===index?"w-8 h-[3px] bg-[#b8955a]":"w-3 h-[3px] bg-white/20 hover:bg-white/50"}`} />
-            ))}
-          </div>
         </div>
 
-        <div className={`w-full sm:w-[320px] md:w-[380px] flex-shrink-0 bg-[#0d0d0d]
-                         ${isAr?"sm:border-r":"sm:border-l"} border-white/10
-                         border-t sm:border-t-0 flex flex-col justify-center
-                         px-6 sm:px-8 py-6 sm:py-10 overflow-y-auto`}>
-          <AnimatePresence mode="wait">
-            <motion.div key={index} initial={{ opacity:0, y:16 }} animate={{ opacity:1, y:0 }}
-              exit={{ opacity:0, y:-16 }} transition={{ duration:0.3 }}
-              className={isAr?"text-right":""}>
-              <p className="text-[9px] tracking-[0.5em] text-[#b8955a] uppercase mb-4 font-semibold">{index+1} / {items.length}</p>
-              <h2 className="text-white text-lg sm:text-2xl font-semibold tracking-[0.1em] uppercase leading-snug mb-5">{displayTitle}</h2>
-              <div className="w-10 h-[1px] bg-[#b8955a] mb-6" />
-              <div className="space-y-4">
-                {displayMedium && <div>
-                  <p className="text-[9px] tracking-[0.45em] text-neutral-500 uppercase mb-1 font-semibold">{isAr?"الخامة":"Medium"}</p>
-                  <p className="text-neutral-200 text-sm italic leading-relaxed">{displayMedium}</p>
-                </div>}
-                {item.dims && <div>
-                  <p className="text-[9px] tracking-[0.45em] text-neutral-500 uppercase mb-1 font-semibold">{isAr?"الأبعاد":"Dimensions"}</p>
-                  <p className="text-neutral-200 text-sm tracking-wider">{item.dims}</p>
-                </div>}
-                {item.year && <div>
-                  <p className="text-[9px] tracking-[0.45em] text-neutral-500 uppercase mb-1 font-semibold">{isAr?"السنة":"Year"}</p>
-                  <p className="text-neutral-200 text-sm tracking-widest">{item.year}</p>
-                </div>}
-                {displayLocation && <div>
-                  <p className="text-[9px] tracking-[0.45em] text-neutral-500 uppercase mb-1 font-semibold">{isAr?"الموقع":"Location"}</p>
-                  <p className="text-[#f0cc8a] text-sm leading-relaxed">{displayLocation}</p>
-                </div>}
+        {/* 🔥 DETAILS (كبرناها) */}
+        <div className={`w-full lg:w-[420px] bg-[#0d0d0d] px-8 py-10 ${isAr ? "text-right" : ""}`}>
+          <p className="text-xs tracking-[0.6em] text-[#b8955a] uppercase mb-6">
+            Artwork Details
+          </p>
+
+          <h2 className="text-white text-2xl font-semibold tracking-[0.12em] uppercase mb-8 leading-snug">
+            {displayTitle}
+          </h2>
+
+          <div className="space-y-6 text-base">
+            {displayMedium && (
+              <div>
+                <p className="text-neutral-500 uppercase text-xs mb-2">
+                  Medium
+                </p>
+                <p className="text-neutral-200 italic">
+                  {displayMedium}
+                </p>
               </div>
-              <div className="mt-6 pt-5 border-t border-white/10 flex items-center gap-3">
-                <button onClick={() => index>0 && onChange(index-1)} disabled={index===0}
-                  className="flex-1 py-3 border border-white/15 text-white/50 hover:border-[#b8955a] hover:text-[#b8955a] disabled:opacity-20 transition-all text-xs tracking-[0.3em] uppercase text-center font-semibold">
-                  ‹ {t.prev}
-                </button>
-                <button onClick={() => index<items.length-1 && onChange(index+1)} disabled={index===items.length-1}
-                  className="flex-1 py-3 border border-white/15 text-white/50 hover:border-[#b8955a] hover:text-[#b8955a] disabled:opacity-20 transition-all text-xs tracking-[0.3em] uppercase text-center font-semibold">
-                  {t.next} ›
-                </button>
+            )}
+
+            {item.year && (
+              <div>
+                <p className="text-neutral-500 uppercase text-xs mb-2">
+                  Year
+                </p>
+                <p className="text-neutral-200">
+                  {item.year}
+                </p>
               </div>
-              <a href="#contact" onClick={onClose}
-                className="block mt-4 py-3 text-center border border-[#b8955a] text-[#b8955a] text-[9px] tracking-[0.45em] uppercase font-semibold hover:bg-[#b8955a] hover:text-black transition-all duration-300">
-                {isAr?"طلب عمل مماثل ←":"COMMISSION SIMILAR WORK →"}
-              </a>
-            </motion.div>
-          </AnimatePresence>
+            )}
+
+            {displayLocation && (
+              <div>
+                <p className="text-neutral-500 uppercase text-xs mb-2">
+                  Location
+                </p>
+                <p className="text-[#f0cc8a]">
+                  {displayLocation}
+                </p>
+              </div>
+            )}
+          </div>
+
+          {/* 🔥 NEXT / PREV تحت */}
+          <div className="mt-10 flex gap-3">
+            <button
+              onClick={() => index > 0 && onChange(index - 1)}
+              disabled={index === 0}
+              className="flex-1 border border-white/20 py-3 text-white/60 hover:text-[#b8955a] hover:border-[#b8955a] disabled:opacity-20 transition"
+            >
+              ← Prev
+            </button>
+
+            <button
+              onClick={() => index < items.length - 1 && onChange(index + 1)}
+              disabled={index === items.length - 1}
+              className="flex-1 border border-white/20 py-3 text-white/60 hover:text-[#b8955a] hover:border-[#b8955a] disabled:opacity-20 transition"
+            >
+              Next →
+            </button>
+          </div>
         </div>
       </div>
     </motion.div>
